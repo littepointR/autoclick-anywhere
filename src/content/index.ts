@@ -1,18 +1,25 @@
 import { MacroRecorder } from '../engine/recorder.ts';
 import { ActionRunner } from '../engine/runner.ts';
-import { AUTOCLICK_HOST_ID, DEFAULT_PERSISTED_STATE, STORAGE_KEY, createId } from '../shared/constants.ts';
+import {
+  AUTOCLICK_HOST_ID,
+  DEFAULT_PERSISTED_STATE,
+  HUD_SESSION_KEY,
+  STORAGE_KEY,
+  createFlowStep,
+  createId,
+} from '../shared/constants.ts';
 import { loadPersistedState, savePersistedState } from '../shared/storage.ts';
 import type {
   BgRequestMessage,
   ContentMessage,
   DispatchResult,
-  MacroRecord,
-  MultiPointItem,
+  FlowRecord,
+  FlowStep,
   PersistedState,
   RuntimeStatus,
   TargetLocator,
 } from '../shared/types.ts';
-import { HudPanel } from './hud.ts';
+import { HudPanel, type HudViewState } from './hud.ts';
 import { OverlayManager } from './overlay.ts';
 import { TargetPicker } from './picker.ts';
 import { HUD_STYLES } from './styles.ts';
@@ -20,6 +27,26 @@ import { HUD_STYLES } from './styles.ts';
 declare global {
   interface Window {
     __AUTOCLICK_ANYWHERE_LOADED__?: boolean;
+  }
+}
+
+function readSessionHudVisible(): boolean {
+  try {
+    return window.sessionStorage.getItem(HUD_SESSION_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeSessionHudVisible(visible: boolean): void {
+  try {
+    if (visible) {
+      window.sessionStorage.setItem(HUD_SESSION_KEY, '1');
+    } else {
+      window.sessionStorage.removeItem(HUD_SESSION_KEY);
+    }
+  } catch {
+    // Ignore restricted sessionStorage
   }
 }
 
@@ -52,6 +79,10 @@ async function bootstrapContent(): Promise<void> {
     structuredClone(DEFAULT_PERSISTED_STATE),
   );
 
+  // Per-tab visibility: only visible on pages where user explicitly opened it
+  let hudVisible = readSessionHudVisible();
+  let hudMinimized = false;
+
   const host = document.createElement('div');
   host.id = AUTOCLICK_HOST_ID;
   const shadow = host.attachShadow({ mode: 'open' });
@@ -78,59 +109,66 @@ async function bootstrapContent(): Promise<void> {
   let hud: HudPanel;
   let overlay: OverlayManager;
 
+  const getActiveFlow = (): FlowRecord =>
+    state.flows.find((f) => f.id === state.activeFlowId) ?? state.flows[0];
+
+  const getViewState = (): HudViewState => ({ hudVisible, hudMinimized });
+
   const getCompositeStatus = (): RuntimeStatus => {
-    const rawSnap = runner.getStatusSnapshot();
-    const effectiveMode = rawSnap.isRunning
-      ? rawSnap.activeMode
-      : recorder.isRecording()
-        ? 'macro'
-        : state.activeMode;
-    const base: RuntimeStatus = {
-      ...rawSnap,
-      activeMode: effectiveMode,
+    const base = runner.getStatusSnapshot({
+      hudVisible,
+      showPins: state.settings.showPins,
       isRecording: recorder.isRecording(),
       isPicking: picker.isPicking(),
       recordedStepsCount: recorder.getSteps().length,
-    };
-    if (!base.isRunning && !base.fallbackReason) {
+    });
+    if (!runner.isActiveSession() && !base.fallbackReason) {
       base.effectiveEngine = state.settings.engine;
     }
     return base;
   };
 
   const syncPins = () => {
+    const activeFlow = getActiveFlow();
+    const shouldShowPins = (hudVisible || runner.isActiveSession()) && state.settings.showPins;
     overlay.renderPins({
-      activeMode: state.activeMode,
-      showPins: state.settings.showPins,
+      steps: activeFlow.steps,
+      showPins: shouldShowPins,
       isRunning: runner.getIsRunning(),
-      singleTarget: state.single.target,
-      followCursor: state.single.followCursor,
-      multiItems: state.multi.items,
-      scrollTarget: state.scroll.target,
-      scrollUseTarget: state.scroll.useTarget,
+      activeStepId: runner.getStatusSnapshot().currentStepId,
     });
   };
 
   const persistState = (next: PersistedState) => {
-    const lockedMode = runner.getIsRunning()
-      ? runner.getStatusSnapshot().activeMode
-      : recorder.isRecording()
-        ? 'macro'
-        : next.activeMode;
-    state = { ...next, activeMode: lockedMode };
+    state = next;
     void savePersistedState(state);
     runner.updateSettings(state.settings);
     recorder.updateOptions({
-      recordWheel: state.macro.recordWheel,
-      recordKeyboard: state.macro.recordKeyboard,
+      recordWheel: state.settings.recordWheel,
+      recordKeyboard: state.settings.recordKeyboard,
     });
-    hud.update(state, getCompositeStatus());
+    hud.update(state, getViewState(), getCompositeStatus());
     syncPins();
   };
 
+  const setHudVisible = (visible: boolean) => {
+    hudVisible = visible;
+    writeSessionHudVisible(visible);
+    if (!visible && picker.isPicking()) {
+      picker.cancel();
+    }
+    hud.update(state, getViewState(), getCompositeStatus());
+    syncPins();
+  };
+
+  const setHudMinimized = (minimized: boolean) => {
+    hudMinimized = minimized;
+    hud.update(state, getViewState(), getCompositeStatus());
+  };
+
   const recorder = new MacroRecorder({
-    recordWheel: state.macro.recordWheel,
-    recordKeyboard: state.macro.recordKeyboard,
+    recordWheel: state.settings.recordWheel,
+    recordKeyboard: state.settings.recordKeyboard,
     onStepsChanged: () => {
       hud.updateStatus(getCompositeStatus());
     },
@@ -152,237 +190,307 @@ async function bootstrapContent(): Promise<void> {
     onStatusChange: () => {
       host.classList.toggle('is-running', runner.getIsRunning());
       hud.updateStatus(getCompositeStatus());
+      syncPins();
     },
   });
 
   overlay = new OverlayManager(shadow, {
-    onUpdateSingleTarget: (loc: TargetLocator) => {
-      persistState({ ...state, single: { ...state.single, target: loc } });
-    },
-    onUpdateScrollTarget: (loc: TargetLocator) => {
-      persistState({ ...state, scroll: { ...state.scroll, target: loc } });
-    },
-    onUpdateMultiItemTarget: (itemId, which, loc) => {
-      const items = state.multi.items.map((it) => {
-        if (it.id !== itemId) return it;
-        return which === 'start' ? { ...it, target: loc } : { ...it, endTarget: loc };
+    onUpdateStepTarget: (stepId: string, which: 'start' | 'end', locator: TargetLocator) => {
+      const activeFlow = getActiveFlow();
+      const flows = state.flows.map((f) => {
+        if (f.id !== activeFlow.id) return f;
+        return {
+          ...f,
+          steps: f.steps.map((s) => {
+            if (s.id !== stepId) return s;
+            return which === 'start' ? { ...s, target: locator } : { ...s, endTarget: locator };
+          }),
+        };
       });
-      persistState({ ...state, multi: { ...state.multi, items } });
+      persistState({ ...state, flows });
     },
   });
 
-  const toggleRun = () => {
-    if (runner.getIsRunning()) {
-      runner.stop(true);
-      host.classList.remove('is-running');
-      hud.update(state, getCompositeStatus());
+  const pauseOrResumeRun = () => {
+    if (recorder.isRecording()) {
+      stopRecordingAndConvertToFlow();
       return;
     }
 
-    if (recorder.isRecording()) {
-      stopRecordingAndSave();
+    const runState = runner.getRunState();
+    if (runState === 'running') {
+      runner.pause();
+      return;
+    }
+    if (runState === 'paused') {
+      runner.resume();
+      return;
     }
 
-    if (state.activeMode === 'single') {
-      void runner.runSingle(state.single, state.settings);
-    } else if (state.activeMode === 'multi') {
-      void runner.runMulti(state.multi, state.settings);
-    } else if (state.activeMode === 'scroll') {
-      void runner.runScroll(state.scroll, state.settings);
-    } else if (state.activeMode === 'macro') {
-      const activeMacro =
-        state.macro.macros.find((m) => m.id === state.macro.activeMacroId) ??
-        state.macro.macros[0];
-      if (activeMacro) {
-        void runner.runMacro(activeMacro, state.macro, state.settings);
-      }
+    const activeFlow = getActiveFlow();
+    if (activeFlow.steps.some((s) => s.enabled)) {
+      void runner.runFlow(activeFlow, state.settings);
     }
   };
 
-  const stopRecordingAndSave = () => {
+  const stopRun = () => {
+    runner.stop(true);
+    host.classList.remove('is-running');
+    hud.update(state, getViewState(), getCompositeStatus());
+    syncPins();
+  };
+
+  const stopRecordingAndConvertToFlow = () => {
     const steps = recorder.stop();
     if (steps.length > 0) {
-      const macro: MacroRecord = {
-        id: createId('macro'),
-        name: `宏脚本 ${state.macro.macros.length + 1}`,
+      const flow: FlowRecord = {
+        id: createId('flow'),
+        name: `录制流程 #${state.flows.length + 1}`,
         createdAt: Date.now(),
-        originHost: window.location.host || 'local',
+        source: 'macro',
+        playbackSpeed: 1,
+        loopCount: 1,
+        loopDelayMs: 500,
         steps,
       };
-      const macros = [macro, ...state.macro.macros];
       persistState({
         ...state,
-        activeMode: 'macro',
-        macro: { ...state.macro, macros, activeMacroId: macro.id },
+        flows: [flow, ...state.flows],
+        activeFlowId: flow.id,
       });
     } else {
-      hud.update(state, getCompositeStatus());
+      hud.update(state, getViewState(), getCompositeStatus());
     }
   };
 
   const toggleRecord = () => {
-    if (runner.getIsRunning()) {
+    if (runner.isActiveSession()) {
       runner.stop(true);
     }
     if (recorder.isRecording()) {
-      stopRecordingAndSave();
+      stopRecordingAndConvertToFlow();
     } else {
-      if (state.activeMode !== 'macro') {
-        state = { ...state, activeMode: 'macro' };
+      if (!hudVisible) {
+        setHudVisible(true);
       }
       recorder.updateOptions({
-        recordWheel: state.macro.recordWheel,
-        recordKeyboard: state.macro.recordKeyboard,
+        recordWheel: state.settings.recordWheel,
+        recordKeyboard: state.settings.recordKeyboard,
       });
       recorder.start();
-      hud.update(state, getCompositeStatus());
+      hud.update(state, getViewState(), getCompositeStatus());
     }
   };
 
-  const addMultiItem = (partial: Partial<MultiPointItem> & Pick<MultiPointItem, 'type' | 'target'>) => {
-    const item: MultiPointItem = {
-      id: createId('mp'),
-      enabled: true,
-      button: 'left',
-      clickKind: 'single',
-      holdMs: 25,
-      deltaX: 0,
-      deltaY: 320,
-      dragDurationMs: 260,
-      repeatCount: 1,
-      delayAfterMs: 300,
-      ...partial,
-    };
+  const togglePins = () => {
     persistState({
       ...state,
-      multi: { ...state.multi, items: [...state.multi.items, item] },
+      settings: { ...state.settings, showPins: !state.settings.showPins },
     });
   };
 
-  hud = new HudPanel(shadow, state, getCompositeStatus(), {
+  const appendStepToActiveFlow = (step: FlowStep) => {
+    const active = getActiveFlow();
+    const flows = state.flows.map((f) =>
+      f.id === active.id ? { ...f, steps: [...f.steps, step] } : f,
+    );
+    persistState({ ...state, flows });
+  };
+
+  hud = new HudPanel(shadow, state, getViewState(), getCompositeStatus(), {
     onStateChange: (next) => persistState(next),
+    onSetHudVisible: (visible) => setHudVisible(visible),
+    onSetHudMinimized: (minimized) => setHudMinimized(minimized),
     onSwitchEngine: (nextEngine) => {
       state = { ...state, settings: { ...state.settings, engine: nextEngine } };
       void savePersistedState(state);
       runner.updateSettings(state.settings, true);
-      hud.update(state, getCompositeStatus());
+      hud.update(state, getViewState(), getCompositeStatus());
     },
-    onToggleRun: toggleRun,
+    onTogglePins: togglePins,
+    onPauseResume: pauseOrResumeRun,
+    onStop: stopRun,
     onToggleRecord: toggleRecord,
-    onPickSingleTarget: async () => {
-      const loc = await picker.pickPoint('点击任意 DOM 元素或 Canvas/WebGL 区域以设为单点目标');
+    onAddStepPickClick: async () => {
+      const loc = await picker.pickPoint('点击任意 DOM 元素或 Canvas/WebGL 位置添加「点击步骤」');
       if (loc) {
-        persistState({
-          ...state,
-          single: { ...state.single, followCursor: false, target: loc },
-        });
+        appendStepToActiveFlow(createFlowStep({ type: 'click', target: loc }));
       }
     },
-    onPickScrollTarget: async () => {
-      const loc = await picker.pickPoint('点击要滚动的容器或 Canvas/WebGL 区域');
+    onAddStepPickWheel: async () => {
+      const loc = await picker.pickPoint('点击要滚动的容器或 Canvas/WebGL 位置添加「滚动步骤」（也可随后切为整页滚动）');
       if (loc) {
-        persistState({
-          ...state,
-          scroll: { ...state.scroll, useTarget: true, target: loc },
-        });
+        appendStepToActiveFlow(
+          createFlowStep({
+            type: 'wheel',
+            usePageScroll: false,
+            target: loc,
+            direction: 'down',
+            deltaY: 320,
+          }),
+        );
       }
     },
-    onPickMultiClick: async () => {
-      const loc = await picker.pickPoint('点击任意位置添加「点击节点」（Esc 取消）');
-      if (loc) {
-        addMultiItem({ type: 'click', target: loc });
-      }
-    },
-    onPickMultiScroll: async () => {
-      const loc = await picker.pickPoint('点击任意位置添加「滚动节点」（Esc 取消）');
-      if (loc) {
-        addMultiItem({ type: 'scroll', target: loc, deltaY: 320 });
-      }
-    },
-    onPickMultiDrag: async () => {
-      const drag = await picker.pickDrag();
+    onAddStepPickDrag: async () => {
+      const drag = await picker.pickDrag('按住左键从起点拖拽到终点添加「拖拽步骤」（Esc 取消）');
       if (drag) {
-        addMultiItem({ type: 'drag', target: drag.start, endTarget: drag.end, dragDurationMs: 280 });
+        appendStepToActiveFlow(
+          createFlowStep({
+            type: 'drag',
+            target: drag.start,
+            endTarget: drag.end,
+            dragDurationMs: 280,
+          }),
+        );
       }
+    },
+    onAddStepKey: () => {
+      appendStepToActiveFlow(
+        createFlowStep({
+          type: 'key',
+          key: 'Space',
+          code: 'Space',
+          keyCode: 32,
+          modifiers: 0,
+          delayAfterMs: 200,
+        }),
+      );
+    },
+    onAddStepWait: () => {
+      appendStepToActiveFlow(
+        createFlowStep({
+          type: 'wait',
+          waitMs: 500,
+          delayAfterMs: 0,
+        }),
+      );
+    },
+    onPickStepTarget: async (stepId: string, which: 'start' | 'end') => {
+      const loc = await picker.pickPoint(
+        which === 'end' ? '点击设置该拖拽步骤的终点 B（Esc 取消）' : '点击设置该步骤的新目标位置（Esc 取消）',
+      );
+      if (!loc) return;
+      const active = getActiveFlow();
+      const flows = state.flows.map((f) => {
+        if (f.id !== active.id) return f;
+        return {
+          ...f,
+          steps: f.steps.map((s) => {
+            if (s.id !== stepId) return s;
+            return which === 'end' ? { ...s, endTarget: loc } : { ...s, target: loc, followCursor: false, usePageScroll: false };
+          }),
+        };
+      });
+      persistState({ ...state, flows });
     },
   });
 
   syncPins();
 
-  // Global keyboard hotkeys (F8 toggle run, F9 toggle record, Alt+H toggle HUD, Esc emergency stop)
+  // Explicit page trigger (used by built-in playground button)
+  window.addEventListener('autoclick:toggle-hud', () => {
+    setHudVisible(!hudVisible);
+  });
+
+  // Global hotkeys
   window.addEventListener(
     'keydown',
     (ev) => {
+      if ((ev.altKey && !ev.ctrlKey && ev.code === 'KeyH') || (ev.altKey && ev.shiftKey && ev.code === 'KeyH')) {
+        ev.preventDefault();
+        setHudVisible(!hudVisible);
+        return;
+      }
+
+      const extensionActiveOnPage =
+        hudVisible || runner.isActiveSession() || recorder.isRecording() || picker.isPicking();
+      if (!extensionActiveOnPage) return;
+
       if (ev.key === 'Escape' && state.settings.emergencyEscStop) {
         if (picker.isPicking()) {
           picker.cancel();
           return;
         }
-        if (runner.getIsRunning()) {
+        if (runner.isActiveSession()) {
           ev.preventDefault();
-          runner.stop(true);
-          host.classList.remove('is-running');
-          hud.update(state, getCompositeStatus());
+          stopRun();
           return;
         }
         if (recorder.isRecording()) {
           ev.preventDefault();
-          stopRecordingAndSave();
+          stopRecordingAndConvertToFlow();
           return;
         }
       }
 
+      if (ev.altKey && !ev.ctrlKey && !ev.shiftKey && ev.code === 'KeyP') {
+        ev.preventDefault();
+        togglePins();
+        return;
+      }
+
+      if (ev.shiftKey && ev.key === 'F8') {
+        ev.preventDefault();
+        stopRun();
+        return;
+      }
+
       if (ev.key === 'F8' || (ev.altKey && ev.shiftKey && ev.code === 'KeyS')) {
         ev.preventDefault();
-        toggleRun();
+        pauseOrResumeRun();
         return;
       }
 
       if (ev.key === 'F9' || (ev.altKey && ev.shiftKey && ev.code === 'KeyR')) {
         ev.preventDefault();
         toggleRecord();
-        return;
-      }
-
-      if ((ev.altKey && !ev.ctrlKey && ev.code === 'KeyH') || (ev.altKey && ev.shiftKey && ev.code === 'KeyH')) {
-        ev.preventDefault();
-        persistState({ ...state, hudVisible: !state.hudVisible });
       }
     },
     true,
   );
 
-  // Sync changes coming from popup via chrome.storage
   if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (areaName !== 'local' || !changes[STORAGE_KEY]?.newValue) return;
       const incoming = changes[STORAGE_KEY].newValue as PersistedState;
-      // Avoid feedback loop if only settings or hud visibility changed from popup
       const settingsChanged = JSON.stringify(incoming.settings) !== JSON.stringify(state.settings);
-      const hudChanged = incoming.hudVisible !== state.hudVisible;
-      if (settingsChanged || hudChanged) {
+      if (settingsChanged) {
         state = {
           ...state,
-          hudVisible: incoming.hudVisible,
           settings: incoming.settings,
         };
-        runner.updateSettings(state.settings, settingsChanged);
-        hud.update(state, getCompositeStatus());
+        runner.updateSettings(state.settings, true);
+        recorder.updateOptions({
+          recordWheel: state.settings.recordWheel,
+          recordKeyboard: state.settings.recordKeyboard,
+        });
+        hud.update(state, getViewState(), getCompositeStatus());
         syncPins();
       }
     });
   }
 
-  // Handle commands from service worker / popup
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((msg: ContentMessage, _sender, sendResponse) => {
       if (msg.type === 'TOGGLE_HUD') {
-        persistState({ ...state, hudVisible: !state.hudVisible, hudMinimized: false });
-        sendResponse({ ok: true, hudVisible: state.hudVisible });
+        hudMinimized = false;
+        setHudVisible(!hudVisible);
+        sendResponse(getCompositeStatus());
         return;
       }
-      if (msg.type === 'TOGGLE_RUN') {
-        toggleRun();
+      if (msg.type === 'SHOW_HUD') {
+        hudMinimized = false;
+        setHudVisible(true);
+        sendResponse(getCompositeStatus());
+        return;
+      }
+      if (msg.type === 'PAUSE_RESUME_RUN') {
+        pauseOrResumeRun();
+        sendResponse(getCompositeStatus());
+        return;
+      }
+      if (msg.type === 'STOP_RUN') {
+        stopRun();
         sendResponse(getCompositeStatus());
         return;
       }
@@ -391,9 +499,8 @@ async function bootstrapContent(): Promise<void> {
         sendResponse(getCompositeStatus());
         return;
       }
-      if (msg.type === 'STOP_ALL') {
-        runner.stop(true);
-        if (recorder.isRecording()) stopRecordingAndSave();
+      if (msg.type === 'TOGGLE_PINS') {
+        togglePins();
         sendResponse(getCompositeStatus());
         return;
       }
@@ -402,11 +509,7 @@ async function bootstrapContent(): Promise<void> {
         return;
       }
       if (msg.type === 'SYNC_SETTINGS') {
-        state = { ...state, settings: msg.settings };
-        void savePersistedState(state);
-        runner.updateSettings(state.settings, true);
-        hud.update(state, getCompositeStatus());
-        syncPins();
+        persistState({ ...state, settings: msg.settings });
         sendResponse({ ok: true });
       }
     });

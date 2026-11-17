@@ -5,7 +5,7 @@
 }
 
 body {
-  width: 340px;
+  width: 348px;
   background: #0b1120;
   color: #e2e8f0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
@@ -44,6 +44,11 @@ body {
 .dot.is-running {
   background: #10b981;
   box-shadow: 0 0 10px #10b981;
+}
+
+.dot.is-paused {
+  background: #f59e0b;
+  box-shadow: 0 0 10px #f59e0b;
 }
 
 .dot.is-recording {
@@ -97,8 +102,8 @@ h1 {
 .btn {
   border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 12px;
+  padding: 7px 9px;
+  font-size: 11px;
   font-weight: 600;
   color: #f8fafc;
   background: rgba(51, 65, 85, 0.72);
@@ -106,8 +111,13 @@ h1 {
   transition: filter 0.12s ease;
 }
 
-.btn:hover {
+.btn:hover:not(:disabled) {
   filter: brightness(1.1);
+}
+
+.btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
 }
 
 .btn-block {
@@ -123,6 +133,18 @@ h1 {
   background: rgba(16, 185, 129, 0.2);
   border-color: rgba(16, 185, 129, 0.45);
   color: #a7f3d0;
+}
+
+.btn-warn {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fde68a;
+}
+
+.btn-danger {
+  background: rgba(225, 29, 72, 0.2);
+  border-color: rgba(251, 113, 133, 0.45);
+  color: #fecdd3;
 }
 
 .btn-record {

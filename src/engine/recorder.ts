@@ -1,7 +1,7 @@
-import { createId } from '../shared/constants.ts';
+import { createFlowStep } from '../shared/constants.ts';
 import { createLocatorFromPoint, isExtensionElement } from '../shared/selector.ts';
 import { canCoalesceWheel } from '../shared/timing.ts';
-import type { MacroStep, MouseButtonType } from '../shared/types.ts';
+import type { FlowStep, MouseButtonType } from '../shared/types.ts';
 
 export interface MacroRecorderOptions {
   recordWheel: boolean;
@@ -10,7 +10,7 @@ export interface MacroRecorderOptions {
   win?: Window;
   doc?: Document;
   now?: () => number;
-  onStepsChanged?: (steps: MacroStep[]) => void;
+  onStepsChanged?: (steps: FlowStep[]) => void;
 }
 
 interface PendingPointerDown {
@@ -58,7 +58,7 @@ export class MacroRecorder {
   private options: MacroRecorderOptions;
 
   private recording = false;
-  private steps: MacroStep[] = [];
+  private steps: FlowStep[] = [];
   private lastEventTime = 0;
   private pendingDown: PendingPointerDown | null = null;
   private lastWheelMeta: { timestamp: number; x: number; y: number } | null = null;
@@ -80,7 +80,7 @@ export class MacroRecorder {
     return this.recording;
   }
 
-  getSteps(): MacroStep[] {
+  getSteps(): FlowStep[] {
     return [...this.steps];
   }
 
@@ -103,7 +103,7 @@ export class MacroRecorder {
     this.options.onStepsChanged?.(this.getSteps());
   }
 
-  stop(): MacroStep[] {
+  stop(): FlowStep[] {
     if (!this.recording) return this.getSteps();
     this.recording = false;
     this.pendingDown = null;
@@ -166,15 +166,19 @@ export class MacroRecorder {
     if (dist >= 8) {
       const startLocator = createLocatorFromPoint(down.x, down.y, 'auto', this.doc);
       const endLocator = createLocatorFromPoint(endX, endY, 'auto', this.doc);
-      this.steps.push({
-        id: createId('step'),
-        type: 'drag',
-        delayBeforeMs: down.delayBeforeMs,
-        target: startLocator,
-        endTarget: endLocator,
-        button: down.button,
-        durationMs,
-      });
+      this.steps.push(
+        createFlowStep({
+          type: 'drag',
+          delayBeforeMs: down.delayBeforeMs,
+          target: startLocator,
+          endTarget: endLocator,
+          button: down.button,
+          dragDurationMs: durationMs,
+          delayAfterMs: 0,
+          jitterMs: 0,
+          jitterPx: 0,
+        }),
+      );
       this.lastEventTime = t;
       this.options.onStepsChanged?.(this.getSteps());
       return;
@@ -199,15 +203,19 @@ export class MacroRecorder {
     }
 
     const locator = createLocatorFromPoint(down.x, down.y, 'auto', this.doc);
-    this.steps.push({
-      id: createId('step'),
-      type: 'click',
-      delayBeforeMs: down.delayBeforeMs,
-      target: locator,
-      button: down.button,
-      clickKind: durationMs >= 350 ? 'hold' : 'single',
-      holdMs: durationMs >= 350 ? durationMs : 25,
-    });
+    this.steps.push(
+      createFlowStep({
+        type: 'click',
+        delayBeforeMs: down.delayBeforeMs,
+        target: locator,
+        button: down.button,
+        clickKind: durationMs >= 350 ? 'hold' : 'single',
+        holdMs: durationMs >= 350 ? durationMs : 25,
+        delayAfterMs: 0,
+        jitterMs: 0,
+        jitterPx: 0,
+      }),
+    );
     this.lastEventTime = t;
     this.options.onStepsChanged?.(this.getSteps());
   };
@@ -240,8 +248,8 @@ export class MacroRecorder {
         { timestamp: t, x, y, deltaX: dx, deltaY: dy },
       )
     ) {
-      lastStep.deltaX = (lastStep.deltaX ?? 0) + dx;
-      lastStep.deltaY = (lastStep.deltaY ?? 0) + dy;
+      lastStep.deltaX += dx;
+      lastStep.deltaY += dy;
       this.lastWheelMeta = { timestamp: t, x, y };
       this.lastEventTime = t;
       this.options.onStepsChanged?.(this.getSteps());
@@ -250,14 +258,20 @@ export class MacroRecorder {
 
     const delayBeforeMs = this.steps.length === 0 ? 0 : Math.max(0, t - this.lastEventTime);
     const target = createLocatorFromPoint(x, y, 'auto', this.doc);
-    this.steps.push({
-      id: createId('step'),
-      type: 'wheel',
-      delayBeforeMs,
-      target,
-      deltaX: dx,
-      deltaY: dy,
-    });
+    this.steps.push(
+      createFlowStep({
+        type: 'wheel',
+        delayBeforeMs,
+        usePageScroll: false,
+        target,
+        direction: 'custom',
+        deltaX: dx,
+        deltaY: dy,
+        delayAfterMs: 0,
+        jitterMs: 0,
+        jitterPx: 0,
+      }),
+    );
     this.lastWheelMeta = { timestamp: t, x, y };
     this.lastEventTime = t;
     this.options.onStepsChanged?.(this.getSteps());
@@ -273,9 +287,11 @@ export class MacroRecorder {
     const combo = formatShortcutCombo(ev);
     const ignored = new Set([
       'F8',
+      'Shift+F8',
       'F9',
       'Escape',
       'Alt+H',
+      'Alt+P',
       'Alt+Shift+S',
       'Alt+Shift+R',
       'Alt+Shift+H',
@@ -287,15 +303,19 @@ export class MacroRecorder {
     const delayBeforeMs = this.steps.length === 0 ? 0 : Math.max(0, t - this.lastEventTime);
     this.lastWheelMeta = null;
 
-    this.steps.push({
-      id: createId('step'),
-      type: 'key',
-      delayBeforeMs,
-      key: ev.key,
-      code: ev.code,
-      keyCode: ev.keyCode || 0,
-      modifiers: extractModifierMask(ev),
-    });
+    this.steps.push(
+      createFlowStep({
+        type: 'key',
+        delayBeforeMs,
+        key: ev.key,
+        code: ev.code,
+        keyCode: ev.keyCode || 0,
+        modifiers: extractModifierMask(ev),
+        delayAfterMs: 0,
+        jitterMs: 0,
+        jitterPx: 0,
+      }),
+    );
     this.lastEventTime = t;
     this.options.onStepsChanged?.(this.getSteps());
   };

@@ -50,6 +50,7 @@ await Promise.all([
 ]);
 
 cpSync(resolve(rootDir, 'public/manifest.json'), resolve(distDir, 'manifest.json'));
+cpSync(resolve(rootDir, 'public/_locales'), resolve(distDir, '_locales'), { recursive: true });
 cpSync(resolve(rootDir, 'public/icons'), resolve(distDir, 'icons'), { recursive: true });
 cpSync(resolve(rootDir, 'src/popup/popup.html'), resolve(distDir, 'popup.html'));
 cpSync(resolve(rootDir, 'src/popup/popup.css'), resolve(distDir, 'popup.css'));

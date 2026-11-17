@@ -15,6 +15,7 @@ import {
   canCoalesceWheel,
   interpolateDragSteps,
 } from '../src/shared/timing.ts';
+import { computeClampedHudPosition } from '../src/shared/viewport.ts';
 
 function mockRect(el: Element, left: number, top: number, width: number, height: number): void {
   Object.defineProperty(el, 'getBoundingClientRect', {
@@ -155,4 +156,52 @@ test('Timing helpers: jitter bounds, drag interpolation, and wheel coalescing', 
     ),
     false,
   );
+});
+
+test('computeClampedHudPosition shifts expanded HUD into available surrounding viewport space', () => {
+  // 1. Bottom-right mini-pill anchor expanding into 392x560 inside 1440x900 viewport
+  const bottomRight = computeClampedHudPosition({
+    preferred: { x: 1220, y: 840 },
+    boxWidth: 392,
+    boxHeight: 560,
+    viewportWidth: 1440,
+    viewportHeight: 900,
+    margin: 10,
+  });
+  assert.deepEqual(bottomRight, { x: 1038, y: 330 });
+  assert.ok(bottomRight.x + 392 <= 1440 - 10);
+  assert.ok(bottomRight.y + 560 <= 900 - 10);
+
+  // 2. Bottom-left anchor preserves X and shifts Y upwards
+  const bottomLeft = computeClampedHudPosition({
+    preferred: { x: 12, y: 820 },
+    boxWidth: 392,
+    boxHeight: 560,
+    viewportWidth: 1440,
+    viewportHeight: 900,
+    margin: 10,
+  });
+  assert.deepEqual(bottomLeft, { x: 12, y: 330 });
+
+  // 3. Toggling wide mode (472px) near right edge shifts X left and preserves Y
+  const wideNearRight = computeClampedHudPosition({
+    preferred: { x: 1040, y: 20 },
+    boxWidth: 472,
+    boxHeight: 500,
+    viewportWidth: 1440,
+    viewportHeight: 900,
+    margin: 10,
+  });
+  assert.deepEqual(wideNearRight, { x: 958, y: 20 });
+
+  // 4. Tiny viewport smaller than nominal panel returns safe non-negative coordinates
+  const tiny = computeClampedHudPosition({
+    preferred: { x: 300, y: 400 },
+    boxWidth: 392,
+    boxHeight: 560,
+    viewportWidth: 360,
+    viewportHeight: 480,
+    margin: 10,
+  });
+  assert.ok(tiny.x >= 4 && tiny.y >= 4);
 });

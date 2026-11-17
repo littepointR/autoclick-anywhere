@@ -450,3 +450,6 @@ document.getElementById('clear-logs-btn')?.addEventListener('click', () => {
   const logs = document.getElementById('event-logs');
   if (logs) logs.innerHTML = '';
 });
+document.getElementById('toggle-hud-btn')?.addEventListener('click', () => {
+  window.dispatchEvent(new CustomEvent('autoclick:toggle-hud'));
+});

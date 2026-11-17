@@ -1,43 +1,36 @@
 import { createLocatorFromPoint, resolveTargetLocator } from '../shared/selector.ts';
-import type {
-  ActiveTabMode,
-  MultiPointItem,
-  TargetLocator,
-  VisualEffect,
-} from '../shared/types.ts';
+import type { FlowStep, TargetLocator, VisualEffect } from '../shared/types.ts';
 
 export interface OverlayUpdateInput {
-  activeMode: ActiveTabMode;
+  steps: FlowStep[];
   showPins: boolean;
   isRunning: boolean;
-  singleTarget: TargetLocator | null;
-  followCursor: boolean;
-  multiItems: MultiPointItem[];
-  scrollTarget: TargetLocator | null;
-  scrollUseTarget: boolean;
+  activeStepId: string | null;
 }
 
 export interface OverlayCallbacks {
-  onUpdateSingleTarget: (locator: TargetLocator) => void;
-  onUpdateScrollTarget: (locator: TargetLocator) => void;
-  onUpdateMultiItemTarget: (itemId: string, which: 'start' | 'end', locator: TargetLocator) => void;
+  onUpdateStepTarget: (stepId: string, which: 'start' | 'end', locator: TargetLocator) => void;
 }
 
 export class OverlayManager {
+  private readonly shadowRoot: ShadowRoot;
   private readonly fxLayer: HTMLDivElement;
   private readonly svgLayer: SVGSVGElement;
   private readonly pinsLayer: HTMLDivElement;
   private readonly callbacks: OverlayCallbacks;
 
   private lastInput: OverlayUpdateInput | null = null;
+  private deferredInput: OverlayUpdateInput | null = null;
   private rafPending = false;
   private draggingPin: {
-    kind: 'single' | 'scroll' | 'multi-start' | 'multi-end';
-    itemId?: string;
+    stepId: string;
+    which: 'start' | 'end';
     pinEl: HTMLElement;
+    shield: HTMLDivElement;
   } | null = null;
 
   constructor(shadowRoot: ShadowRoot, callbacks: OverlayCallbacks) {
+    this.shadowRoot = shadowRoot;
     this.callbacks = callbacks;
 
     this.fxLayer = document.createElement('div');
@@ -61,79 +54,66 @@ export class OverlayManager {
   }
 
   private scheduleReposition = (): void => {
-    if (!this.lastInput || !this.lastInput.showPins || this.rafPending) return;
+    if (this.draggingPin || !this.lastInput || !this.lastInput.showPins || this.rafPending) return;
     this.rafPending = true;
     requestAnimationFrame(() => {
       this.rafPending = false;
-      if (this.lastInput) {
+      if (!this.draggingPin && this.lastInput) {
         this.renderPins(this.lastInput);
       }
     });
   };
 
   renderPins(input: OverlayUpdateInput): void {
+    if (this.draggingPin) {
+      this.deferredInput = input;
+      return;
+    }
+
     this.lastInput = input;
     this.pinsLayer.innerHTML = '';
     this.svgLayer.innerHTML = '';
 
     if (!input.showPins) return;
 
-    if (input.activeMode === 'single' && !input.followCursor && input.singleTarget) {
-      const resolved = resolveTargetLocator(input.singleTarget, document, false);
+    let hasArrows = false;
+
+    input.steps.forEach((step, idx) => {
+      if (!step.enabled) return;
+
+      const needsStartPin =
+        (step.type === 'click' && !step.followCursor && !!step.target) ||
+        (step.type === 'wheel' && !step.usePageScroll && !!step.target) ||
+        (step.type === 'drag' && !!step.target);
+
+      if (!needsStartPin || !step.target) return;
+
+      const start = resolveTargetLocator(step.target, document, false);
+      const isExecuting = input.isRunning && input.activeStepId === step.id;
+
       const pin = this.createPinElement({
-        label: '1',
-        x: resolved.x,
-        y: resolved.y,
-        isCanvas: resolved.isCanvas,
-        extraClass: 'is-single',
-        title: `单点目标 (${resolved.x}, ${resolved.y}) - 可拖拽调整`,
-        kind: 'single',
+        label: String(idx + 1),
+        x: start.x,
+        y: start.y,
+        isCanvas: start.isCanvas,
+        isExecuting,
+        extraClass: step.type === 'wheel' ? 'is-scroll' : '',
+        title: `#${idx + 1} ${step.type.toUpperCase()} (${start.x}, ${start.y}) · 按住拖拽可调整坐标`,
+        stepId: step.id,
       });
       this.pinsLayer.appendChild(pin);
-      return;
-    }
 
-    if (input.activeMode === 'scroll' && input.scrollUseTarget && input.scrollTarget) {
-      const resolved = resolveTargetLocator(input.scrollTarget, document, false);
-      const pin = this.createPinElement({
-        label: '⇅',
-        x: resolved.x,
-        y: resolved.y,
-        isCanvas: resolved.isCanvas,
-        extraClass: 'is-scroll',
-        title: `滚动目标 (${resolved.x}, ${resolved.y}) - 可拖拽调整`,
-        kind: 'scroll',
-      });
-      this.pinsLayer.appendChild(pin);
-      return;
-    }
-
-    if (input.activeMode === 'multi') {
-      this.ensureSvgArrowDefs();
-      input.multiItems.forEach((item, idx) => {
-        if (!item.enabled || item.type === 'wait') return;
-        const start = resolveTargetLocator(item.target, document, false);
-
-        const pin = this.createPinElement({
-          label: String(idx + 1),
-          x: start.x,
-          y: start.y,
-          isCanvas: start.isCanvas,
-          extraClass: item.type === 'scroll' ? 'is-scroll' : '',
-          title: `#${idx + 1} ${item.type.toUpperCase()} (${start.x}, ${start.y})`,
-          kind: 'multi-start',
-          itemId: item.id,
-        });
-        this.pinsLayer.appendChild(pin);
-
-        if (item.type === 'drag' && item.endTarget) {
-          const end = resolveTargetLocator(item.endTarget, document, false);
-          this.drawDragArrow(start.x, start.y, end.x, end.y);
-          const endPin = this.createEndPinElement(idx + 1, end.x, end.y, item.id);
-          this.pinsLayer.appendChild(endPin);
+      if (step.type === 'drag' && step.endTarget) {
+        if (!hasArrows) {
+          this.ensureSvgArrowDefs();
+          hasArrows = true;
         }
-      });
-    }
+        const end = resolveTargetLocator(step.endTarget, document, false);
+        this.drawDragArrow(step.id, start.x, start.y, end.x, end.y);
+        const endPin = this.createEndPinElement(idx + 1, end.x, end.y, step.id, isExecuting);
+        this.pinsLayer.appendChild(endPin);
+      }
+    });
   }
 
   private ensureSvgArrowDefs(): void {
@@ -153,8 +133,9 @@ export class OverlayManager {
     this.svgLayer.appendChild(defs);
   }
 
-  private drawDragArrow(x1: number, y1: number, x2: number, y2: number): void {
+  private drawDragArrow(stepId: string, x1: number, y1: number, x2: number, y2: number): void {
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('data-step-id', stepId);
     line.setAttribute('x1', String(x1));
     line.setAttribute('y1', String(y1));
     line.setAttribute('x2', String(x2));
@@ -171,80 +152,132 @@ export class OverlayManager {
     x: number;
     y: number;
     isCanvas: boolean;
+    isExecuting: boolean;
     extraClass?: string;
     title: string;
-    kind: 'single' | 'scroll' | 'multi-start';
-    itemId?: string;
+    stepId: string;
   }): HTMLDivElement {
     const pin = document.createElement('div');
-    pin.className = `ac-pin ${opts.isCanvas ? 'is-canvas' : ''} ${opts.extraClass ?? ''}`.trim();
+    pin.className = `ac-pin ${opts.isCanvas ? 'is-canvas' : ''} ${opts.isExecuting ? 'is-executing-pin' : ''} ${opts.extraClass ?? ''}`.trim();
     pin.textContent = opts.label;
     pin.title = opts.title;
     pin.style.left = `${opts.x}px`;
     pin.style.top = `${opts.y}px`;
 
+    pin.addEventListener('dragstart', (ev) => ev.preventDefault());
     pin.addEventListener('pointerdown', (ev) => {
       if (this.lastInput?.isRunning || ev.button !== 0) return;
       ev.preventDefault();
       ev.stopPropagation();
-      this.startPinDrag(opts.kind, opts.itemId, pin);
+      this.startPinDrag(opts.stepId, 'start', pin, ev.pointerId);
     });
 
     return pin;
   }
 
-  private createEndPinElement(index: number, x: number, y: number, itemId: string): HTMLDivElement {
+  private createEndPinElement(
+    index: number,
+    x: number,
+    y: number,
+    stepId: string,
+    isExecuting: boolean,
+  ): HTMLDivElement {
     const endPin = document.createElement('div');
-    endPin.className = 'ac-pin-end';
+    endPin.className = `ac-pin-end ${isExecuting ? 'is-executing-pin' : ''}`.trim();
     endPin.textContent = `${index}B`;
-    endPin.title = `#${index} 拖拽终点 (${x}, ${y}) - 可拖拽调整`;
+    endPin.title = `#${index} 拖拽终点 (${x}, ${y}) · 按住拖拽可调整`;
     endPin.style.left = `${x}px`;
     endPin.style.top = `${y}px`;
 
+    endPin.addEventListener('dragstart', (ev) => ev.preventDefault());
     endPin.addEventListener('pointerdown', (ev) => {
       if (this.lastInput?.isRunning || ev.button !== 0) return;
       ev.preventDefault();
       ev.stopPropagation();
-      this.startPinDrag('multi-end', itemId, endPin);
+      this.startPinDrag(stepId, 'end', endPin, ev.pointerId);
     });
 
     return endPin;
   }
 
   private startPinDrag(
-    kind: 'single' | 'scroll' | 'multi-start' | 'multi-end',
-    itemId: string | undefined,
+    stepId: string,
+    which: 'start' | 'end',
     pinEl: HTMLElement,
+    pointerId: number,
   ): void {
-    this.draggingPin = { kind, itemId, pinEl };
+    const shield = document.createElement('div');
+    shield.className = 'ac-drag-shield';
+    this.shadowRoot.appendChild(shield);
+    try {
+      shield.setPointerCapture(pointerId);
+    } catch {
+      // Fallback safely when synthetic events lack active pointerId
+    }
+
+    this.draggingPin = { stepId, which, pinEl, shield };
+
+    const updateVisual = (clientX: number, clientY: number) => {
+      const rx = Math.round(Math.max(0, Math.min(window.innerWidth - 1, clientX)));
+      const ry = Math.round(Math.max(0, Math.min(window.innerHeight - 1, clientY)));
+      pinEl.style.left = `${rx}px`;
+      pinEl.style.top = `${ry}px`;
+
+      const line = this.svgLayer.querySelector(`line[data-step-id="${stepId}"]`);
+      if (line) {
+        if (which === 'start') {
+          line.setAttribute('x1', String(rx));
+          line.setAttribute('y1', String(ry));
+        } else {
+          line.setAttribute('x2', String(rx));
+          line.setAttribute('y2', String(ry));
+        }
+      }
+      return { rx, ry };
+    };
 
     const onMove = (ev: PointerEvent) => {
       if (!this.draggingPin) return;
-      pinEl.style.left = `${Math.round(ev.clientX)}px`;
-      pinEl.style.top = `${Math.round(ev.clientY)}px`;
+      ev.preventDefault();
+      updateVisual(ev.clientX, ev.clientY);
     };
 
-    const onUp = (ev: PointerEvent) => {
-      window.removeEventListener('pointermove', onMove, true);
-      window.removeEventListener('pointerup', onUp, true);
-      const drag = this.draggingPin;
-      this.draggingPin = null;
-      if (!drag) return;
+    const finishDrag = (ev: PointerEvent, commit: boolean) => {
+      shield.removeEventListener('pointermove', onMove);
+      shield.removeEventListener('pointerup', onUp);
+      shield.removeEventListener('pointercancel', onCancel);
+      try {
+        if (shield.hasPointerCapture?.(ev.pointerId)) {
+          shield.releasePointerCapture(ev.pointerId);
+        }
+      } catch {
+        // Ignore release errors
+      }
+      shield.remove();
 
-      const locator = createLocatorFromPoint(ev.clientX, ev.clientY, 'auto', document);
-      if (drag.kind === 'single') {
-        this.callbacks.onUpdateSingleTarget(locator);
-      } else if (drag.kind === 'scroll') {
-        this.callbacks.onUpdateScrollTarget(locator);
-      } else if (drag.kind === 'multi-start' && drag.itemId) {
-        this.callbacks.onUpdateMultiItemTarget(drag.itemId, 'start', locator);
-      } else if (drag.kind === 'multi-end' && drag.itemId) {
-        this.callbacks.onUpdateMultiItemTarget(drag.itemId, 'end', locator);
+      const active = this.draggingPin;
+      this.draggingPin = null;
+      if (!active) return;
+
+      if (commit) {
+        const { rx, ry } = updateVisual(ev.clientX, ev.clientY);
+        const locator = createLocatorFromPoint(rx, ry, 'auto', document);
+        this.callbacks.onUpdateStepTarget(active.stepId, active.which, locator);
+      }
+
+      if (this.deferredInput) {
+        const pending = this.deferredInput;
+        this.deferredInput = null;
+        this.renderPins(pending);
       }
     };
 
-    window.addEventListener('pointermove', onMove, true);
-    window.addEventListener('pointerup', onUp, true);
+    const onUp = (ev: PointerEvent) => finishDrag(ev, true);
+    const onCancel = (ev: PointerEvent) => finishDrag(ev, false);
+
+    shield.addEventListener('pointermove', onMove);
+    shield.addEventListener('pointerup', onUp);
+    shield.addEventListener('pointercancel', onCancel);
   }
 
   spawnEffect(effect: VisualEffect): void {

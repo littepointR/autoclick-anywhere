@@ -1,0 +1,8 @@
+{
+  "extName": {
+    "message": "AutoClick Anywhere - 全能流程图连点器"
+  },
+  "extDesc": {
+    "message": "同时支持普通 DOM 与 Canvas/WebGL 无 DOM 应用的流程图自动点击器：组合点击、滚动、拖拽、按键与宏录制回放（双引擎 CDP 原生 + DOM 静默）。"
+  }
+}

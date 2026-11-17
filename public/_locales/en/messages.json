@@ -1,0 +1,8 @@
+{
+  "extName": {
+    "message": "AutoClick Anywhere - DOM & WebGL Clicker"
+  },
+  "extDesc": {
+    "message": "Visual flowchart auto-clicker & macro recorder for DOM pages and Canvas/WebGL apps (dual-engine CDP trusted + silent DOM)."
+  }
+}

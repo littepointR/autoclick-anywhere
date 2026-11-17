@@ -321,7 +321,7 @@ chrome.commands.onCommand.addListener((command) => {
     const tabId = await getActiveTabId();
     if (tabId === undefined) return;
     if (command === 'toggle-run') {
-      await ensureContentScriptAndSend(tabId, { type: 'TOGGLE_RUN' });
+      await ensureContentScriptAndSend(tabId, { type: 'PAUSE_RESUME_RUN' });
     } else if (command === 'toggle-record') {
       await ensureContentScriptAndSend(tabId, { type: 'TOGGLE_RECORD' });
     } else if (command === 'toggle-hud') {
@@ -385,31 +385,55 @@ chrome.runtime.onMessage.addListener((rawMsg: BgRequestMessage, sender, sendResp
       case 'POPUP_TOGGLE_HUD': {
         const tabId = await getActiveTabId();
         if (tabId === undefined) {
-          sendResponse({ ok: false });
+          sendResponse(null);
           return;
         }
-        const res = await ensureContentScriptAndSend(tabId, { type: 'TOGGLE_HUD' });
-        sendResponse(res ?? { ok: false });
+        sendResponse(await ensureContentScriptAndSend(tabId, { type: 'TOGGLE_HUD' }));
         return;
       }
-      case 'POPUP_TOGGLE_RUN': {
+      case 'POPUP_SHOW_HUD': {
         const tabId = await getActiveTabId();
         if (tabId === undefined) {
-          sendResponse({ ok: false });
+          sendResponse(null);
           return;
         }
-        const res = await ensureContentScriptAndSend(tabId, { type: 'TOGGLE_RUN' });
-        sendResponse(res ?? { ok: false });
+        sendResponse(await ensureContentScriptAndSend(tabId, { type: 'SHOW_HUD' }));
+        return;
+      }
+      case 'POPUP_PAUSE_RESUME': {
+        const tabId = await getActiveTabId();
+        if (tabId === undefined) {
+          sendResponse(null);
+          return;
+        }
+        sendResponse(await ensureContentScriptAndSend(tabId, { type: 'PAUSE_RESUME_RUN' }));
+        return;
+      }
+      case 'POPUP_STOP': {
+        const tabId = await getActiveTabId();
+        if (tabId === undefined) {
+          sendResponse(null);
+          return;
+        }
+        sendResponse(await ensureContentScriptAndSend(tabId, { type: 'STOP_RUN' }));
         return;
       }
       case 'POPUP_TOGGLE_RECORD': {
         const tabId = await getActiveTabId();
         if (tabId === undefined) {
-          sendResponse({ ok: false });
+          sendResponse(null);
           return;
         }
-        const res = await ensureContentScriptAndSend(tabId, { type: 'TOGGLE_RECORD' });
-        sendResponse(res ?? { ok: false });
+        sendResponse(await ensureContentScriptAndSend(tabId, { type: 'TOGGLE_RECORD' }));
+        return;
+      }
+      case 'POPUP_TOGGLE_PINS': {
+        const tabId = await getActiveTabId();
+        if (tabId === undefined) {
+          sendResponse(null);
+          return;
+        }
+        sendResponse(await ensureContentScriptAndSend(tabId, { type: 'TOGGLE_PINS' }));
         return;
       }
       case 'POPUP_GET_STATUS': {
@@ -418,8 +442,7 @@ chrome.runtime.onMessage.addListener((rawMsg: BgRequestMessage, sender, sendResp
           sendResponse(null);
           return;
         }
-        const res = await ensureContentScriptAndSend(tabId, { type: 'GET_STATUS' });
-        sendResponse(res);
+        sendResponse(await ensureContentScriptAndSend(tabId, { type: 'GET_STATUS' }));
         return;
       }
       default:

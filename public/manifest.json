@@ -1,8 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "AutoClick Anywhere - DOM & Canvas/WebGL 自动点击器",
-  "version": "1.0.0",
-  "description": "同时支持普通 DOM 与 Canvas/WebGL 无 DOM 应用的自动点击器：单点、多点序列、滚动、拖拽、宏录制与回放（双引擎 CDP 原生可信输入 + DOM 静默合成）。",
+  "default_locale": "zh_CN",
+  "name": "__MSG_extName__",
+  "version": "1.1.0",
+  "description": "__MSG_extDesc__",
+  "minimum_chrome_version": "114",
+  "homepage_url": "https://github.com/littepointR/autoclick-anywhere",
   "permissions": [
     "storage",
     "activeTab",
@@ -45,7 +48,7 @@
       "suggested_key": {
         "default": "Alt+Shift+S"
       },
-      "description": "启动 / 停止自动执行"
+      "description": "启动 / 暂停 / 继续流程执行"
     },
     "toggle-record": {
       "suggested_key": {
@@ -59,17 +62,5 @@
       },
       "description": "显示 / 隐藏页面悬浮面板"
     }
-  },
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "playground.html",
-        "playground.js",
-        "playground.css",
-        "content.js",
-        "icons/*"
-      ],
-      "matches": ["<all_urls>"]
-    }
-  ]
+  }
 }
