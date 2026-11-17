@@ -356,6 +356,22 @@ export const HUD_STYLES = `
   color: #67e8f9;
 }
 
+.ac-lang-select {
+  background: rgba(30, 41, 59, 0.82);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 7px;
+  padding: 2px 5px;
+  font-size: 11px;
+  cursor: pointer;
+  outline: none;
+  max-width: 78px;
+}
+
+.ac-lang-select:focus {
+  border-color: #22d3ee;
+}
+
 .ac-engine-bar {
   display: flex;
   align-items: center;

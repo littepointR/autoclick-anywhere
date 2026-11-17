@@ -1,8 +1,10 @@
+import { getMessages } from './i18n.ts';
 import type {
   ExtensionSettings,
   FlowRecord,
   FlowStep,
   FlowStepType,
+  LocaleCode,
   PersistedState,
 } from './types.ts';
 
@@ -12,6 +14,7 @@ export const LEGACY_STORAGE_KEY_V1 = 'autoclick_anywhere_state_v1';
 export const HUD_SESSION_KEY = 'autoclick_anywhere_hud_open';
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
+  language: 'auto',
   engine: 'cdp',
   showRipples: true,
   showPins: true,
@@ -59,11 +62,16 @@ export function createFlowStep(partial: Partial<FlowStep> & { type: FlowStepType
   };
 }
 
-export function createPresetFlow(kind: 'single' | 'scroll' | 'combo' | 'empty'): FlowRecord {
+export function createPresetFlow(
+  kind: 'single' | 'scroll' | 'combo' | 'empty',
+  locale?: LocaleCode,
+): FlowRecord {
+  const m = getMessages(locale ?? 'auto');
+
   if (kind === 'single') {
     return {
       id: createId('flow'),
-      name: '单点连点流程',
+      name: m.presets.singleFlowName,
       createdAt: Date.now(),
       source: 'preset',
       playbackSpeed: 1,
@@ -72,7 +80,7 @@ export function createPresetFlow(kind: 'single' | 'scroll' | 'combo' | 'empty'):
       steps: [
         createFlowStep({
           type: 'click',
-          name: '单点连续点击',
+          name: m.presets.singleStepName,
           followCursor: false,
           delayAfterMs: 250,
           jitterMs: 15,
@@ -85,7 +93,7 @@ export function createPresetFlow(kind: 'single' | 'scroll' | 'combo' | 'empty'):
   if (kind === 'scroll') {
     return {
       id: createId('flow'),
-      name: '连续自动滚动流程',
+      name: m.presets.scrollFlowName,
       createdAt: Date.now(),
       source: 'preset',
       playbackSpeed: 1,
@@ -94,7 +102,7 @@ export function createPresetFlow(kind: 'single' | 'scroll' | 'combo' | 'empty'):
       steps: [
         createFlowStep({
           type: 'wheel',
-          name: '页面连续下滑',
+          name: m.presets.scrollStepName,
           usePageScroll: true,
           direction: 'down',
           deltaX: 0,
@@ -110,7 +118,7 @@ export function createPresetFlow(kind: 'single' | 'scroll' | 'combo' | 'empty'):
   if (kind === 'combo') {
     return {
       id: createId('flow'),
-      name: '点击 + 滚动组合示例',
+      name: m.presets.comboFlowName,
       createdAt: Date.now(),
       source: 'preset',
       playbackSpeed: 1,
@@ -119,12 +127,12 @@ export function createPresetFlow(kind: 'single' | 'scroll' | 'combo' | 'empty'):
       steps: [
         createFlowStep({
           type: 'click',
-          name: '触发点击',
+          name: m.presets.comboClickName,
           delayAfterMs: 200,
         }),
         createFlowStep({
           type: 'wheel',
-          name: '向下滚动',
+          name: m.presets.comboWheelName,
           usePageScroll: true,
           direction: 'down',
           deltaY: 320,
@@ -132,7 +140,7 @@ export function createPresetFlow(kind: 'single' | 'scroll' | 'combo' | 'empty'):
         }),
         createFlowStep({
           type: 'wait',
-          name: '等待冷却',
+          name: m.presets.comboWaitName,
           waitMs: 500,
           delayAfterMs: 0,
         }),
@@ -142,7 +150,7 @@ export function createPresetFlow(kind: 'single' | 'scroll' | 'combo' | 'empty'):
 
   return {
     id: createId('flow'),
-    name: '自定义空白流程',
+    name: m.presets.emptyFlowName,
     createdAt: Date.now(),
     source: 'manual',
     playbackSpeed: 1,

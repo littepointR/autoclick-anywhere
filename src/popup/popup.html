@@ -13,67 +13,70 @@
         <span class="dot" id="status-dot"></span>
         <div>
           <h1>AutoClick Anywhere</h1>
-          <p class="subtitle">DOM + Canvas/WebGL 流程图自动点击器</p>
+          <p class="subtitle" data-i18n="subtitle">DOM + Canvas/WebGL 流程图自动点击器</p>
         </div>
       </div>
-      <span class="pill" id="status-badge">检测中…</span>
+      <div class="header-right">
+        <select id="lang-select" class="lang-select" title="Language"></select>
+        <span class="pill" id="status-badge">…</span>
+      </div>
     </header>
 
     <section class="card">
-      <button class="btn btn-primary btn-block" id="btn-toggle-hud">🎛️ 在当前网页显示悬浮面板 (Alt+H)</button>
+      <button class="btn btn-primary btn-block" id="btn-toggle-hud">🎛️</button>
       <div class="grid-2">
-        <button class="btn btn-accent" id="btn-pause-resume">▶ 启动 / 暂停 (F8)</button>
-        <button class="btn btn-danger" id="btn-stop" disabled>⏹ 停止 (Esc)</button>
+        <button class="btn btn-accent" id="btn-pause-resume">▶</button>
+        <button class="btn btn-danger" id="btn-stop" disabled>⏹</button>
       </div>
       <div class="grid-2">
-        <button class="btn btn-record" id="btn-toggle-record">🔴 录制宏转流程 (F9)</button>
-        <button class="btn" id="btn-toggle-pins">👁️ 显隐目标点 (Alt+P)</button>
+        <button class="btn btn-record" id="btn-toggle-record">🔴</button>
+        <button class="btn" id="btn-toggle-pins">👁️</button>
       </div>
     </section>
 
     <section class="card">
-      <div class="card-label">输入派发引擎</div>
+      <div class="card-label" data-i18n="engineSection">输入派发引擎</div>
       <div class="engine-options">
         <label class="radio-card">
           <input type="radio" name="engine" value="cdp" id="eng-cdp" />
           <div>
-            <strong>⚡ CDP 原生可信引擎（推荐）</strong>
-            <small>通过 Chrome Debugger 派发硬件级输入（isTrusted=true），稳定穿透 Canvas / WebGL / Shadow DOM</small>
+            <strong data-i18n="cdpTitle">⚡ CDP 原生可信引擎（推荐）</strong>
+            <small data-i18n="cdpDesc">通过 Chrome Debugger 派发硬件级输入（isTrusted=true），稳定穿透 Canvas / WebGL / Shadow DOM</small>
           </div>
         </label>
         <label class="radio-card">
           <input type="radio" name="engine" value="dom" id="eng-dom" />
           <div>
-            <strong>🔇 DOM 静默合成引擎</strong>
-            <small>零调试横幅，支持 DOM 选择器追踪、Canvas 比例映射与本地滚动</small>
+            <strong data-i18n="domTitle">🔇 DOM 静默合成引擎</strong>
+            <small data-i18n="domDesc">零调试横幅，支持 DOM 选择器追踪、Canvas 比例映射与本地滚动</small>
           </div>
         </label>
       </div>
     </section>
 
     <section class="card">
-      <div class="card-label">辅助选项</div>
+      <div class="card-label" data-i18n="optionsSection">辅助选项</div>
       <label class="toggle-row">
-        <span>显示点击 / 滚轮 / 拖拽波纹特效</span>
+        <span data-i18n="optRipples">显示点击 / 滚轮 / 拖拽波纹特效</span>
         <input type="checkbox" id="opt-ripples" />
       </label>
       <label class="toggle-row">
-        <span>显示页面目标点位标记 (Pins)</span>
+        <span data-i18n="optPins">显示页面目标点位标记 (Pins)</span>
         <input type="checkbox" id="opt-pins" />
       </label>
       <label class="toggle-row">
-        <span>按 Esc 键紧急停止执行/录制</span>
+        <span data-i18n="optEsc">按 Esc 键紧急停止执行/录制</span>
         <input type="checkbox" id="opt-esc" />
       </label>
       <label class="toggle-row">
-        <span>停止/暂停后自动断开 CDP 调试横幅</span>
+        <span data-i18n="optDetach">停止/暂停后自动断开 CDP 调试横幅</span>
         <input type="checkbox" id="opt-detach" />
       </label>
     </section>
 
     <footer class="footer">
-      <button class="btn btn-outline btn-block" id="btn-open-playground">🧪 打开 DOM + Canvas + WebGL 测试靶场</button>
-      <div class="hint" id="conn-hint">默认仅在点击开启的当前网页显示悬浮面板</div>
+      <button class="btn btn-outline btn-block" id="btn-open-playground" data-i18n="openPlayground">🧪 打开 DOM + Canvas + WebGL 测试靶场</button>
+      <div class="hint" id="conn-hint"></div>
     </footer>
   </div>
   <script src="./popup.js"></script>

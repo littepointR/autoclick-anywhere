@@ -1,12 +1,19 @@
+import { fmt, getMessages } from '../shared/i18n.ts';
 import { createLocatorFromPoint, deepElementFromPoint } from '../shared/selector.ts';
-import type { LocatorMode, TargetLocator } from '../shared/types.ts';
+import type { LanguageSetting, LocatorMode, TargetLocator } from '../shared/types.ts';
 
 export class TargetPicker {
   private readonly root: ShadowRoot;
   private activeCleanup: (() => void) | null = null;
+  private language: LanguageSetting = 'auto';
 
-  constructor(shadowRoot: ShadowRoot) {
+  constructor(shadowRoot: ShadowRoot, language: LanguageSetting = 'auto') {
     this.root = shadowRoot;
+    this.language = language;
+  }
+
+  setLanguage(language: LanguageSetting): void {
+    this.language = language;
   }
 
   isPicking(): boolean {
@@ -18,10 +25,11 @@ export class TargetPicker {
   }
 
   pickPoint(
-    promptText = '移动鼠标选择目标位置（支持 DOM / Canvas / WebGL），左键确认，Esc 取消',
+    promptText?: string,
     preferredMode: LocatorMode = 'auto',
   ): Promise<TargetLocator | null> {
     this.cancel();
+    const t = getMessages(this.language);
 
     return new Promise((resolve) => {
       const mask = document.createElement('div');
@@ -35,7 +43,7 @@ export class TargetPicker {
 
       const banner = document.createElement('div');
       banner.className = 'ac-picker-banner';
-      banner.textContent = promptText;
+      banner.textContent = promptText ?? t.picker.defaultPointPrompt;
 
       this.root.append(mask, box, tip, banner);
 
@@ -56,7 +64,11 @@ export class TargetPicker {
       this.activeCleanup = () => finish(null);
 
       const updatePreview = (x: number, y: number) => {
+        const cur = getMessages(this.language);
         const el = deepElementFromPoint(x, y, document);
+        const rx = Math.round(x);
+        const ry = Math.round(y);
+
         if (el) {
           const rect = el.getBoundingClientRect();
           const isCanvas = el.tagName.toUpperCase() === 'CANVAS';
@@ -70,18 +82,20 @@ export class TargetPicker {
           const v = rect.height > 0 ? (((y - rect.top) / rect.height) * 100).toFixed(1) : '50.0';
           const tag = el.tagName.toLowerCase();
           const idPart = el.id ? `#${el.id}` : '';
+          const coordLine = fmt(cur.picker.coordLabel, { x: rx, y: ry });
+          const ratioLine = fmt(cur.picker.canvasRatio, { u, v });
 
           tip.className = 'ac-picker-tip';
           tip.innerHTML = isCanvas
             ? `<div><strong>🎨 ${tag}${idPart} (Canvas/WebGL)</strong></div>
-               <div>坐标: (${Math.round(x)}, ${Math.round(y)})</div>
-               <div>画布比例: u=${u}%, v=${v}%</div>`
+               <div>${coordLine}</div>
+               <div>${ratioLine}</div>`
             : `<div><strong>🎯 ${tag}${idPart}</strong></div>
-               <div>坐标: (${Math.round(x)}, ${Math.round(y)})</div>`;
+               <div>${coordLine}</div>`;
         } else {
           box.className = 'ac-picker-box ac-hidden';
           tip.className = 'ac-picker-tip';
-          tip.innerHTML = `<div><strong>📍 视口坐标</strong></div><div>(${Math.round(x)}, ${Math.round(y)})</div>`;
+          tip.innerHTML = `<div><strong>${cur.picker.viewportCoord}</strong></div><div>(${rx}, ${ry})</div>`;
         }
 
         const tipLeft = Math.min(window.innerWidth - 220, x + 16);
@@ -122,10 +136,9 @@ export class TargetPicker {
     });
   }
 
-  pickDrag(
-    promptText = '按住左键从起点拖拽到终点松开，即可创建拖拽轨迹（Esc 取消）',
-  ): Promise<{ start: TargetLocator; end: TargetLocator } | null> {
+  pickDrag(promptText?: string): Promise<{ start: TargetLocator; end: TargetLocator } | null> {
     this.cancel();
+    const t = getMessages(this.language);
 
     return new Promise((resolve) => {
       const mask = document.createElement('div');
@@ -147,7 +160,7 @@ export class TargetPicker {
 
       const banner = document.createElement('div');
       banner.className = 'ac-picker-banner';
-      banner.textContent = promptText;
+      banner.textContent = promptText ?? t.picker.defaultDragPrompt;
 
       this.root.append(mask, svg, tip, banner);
 
@@ -193,6 +206,7 @@ export class TargetPicker {
       });
 
       mask.addEventListener('pointermove', (ev) => {
+        const cur = getMessages(this.language);
         tip.className = 'ac-picker-tip';
         tip.style.left = `${Math.min(window.innerWidth - 200, ev.clientX + 16)}px`;
         tip.style.top = `${Math.min(window.innerHeight - 60, ev.clientY + 16)}px`;
@@ -201,9 +215,9 @@ export class TargetPicker {
           line.setAttribute('x2', String(ev.clientX));
           line.setAttribute('y2', String(ev.clientY));
           const dist = Math.round(Math.hypot(ev.clientX - startPos.x, ev.clientY - startPos.y));
-          tip.innerHTML = `<div><strong>拖拽终点</strong></div><div>(${Math.round(ev.clientX)}, ${Math.round(ev.clientY)}) · 距离 ${dist}px</div>`;
+          tip.innerHTML = `<div><strong>${cur.picker.dragEndTitle}</strong></div><div>${fmt(cur.picker.dragDistance, { x: Math.round(ev.clientX), y: Math.round(ev.clientY), d: dist })}</div>`;
         } else {
-          tip.innerHTML = `<div><strong>按下左键设置拖拽起点</strong></div><div>(${Math.round(ev.clientX)}, ${Math.round(ev.clientY)})</div>`;
+          tip.innerHTML = `<div><strong>${cur.picker.dragStartTitle}</strong></div><div>(${Math.round(ev.clientX)}, ${Math.round(ev.clientY)})</div>`;
         }
       });
 

@@ -4,5 +4,17 @@
   },
   "extDesc": {
     "message": "同时支持普通 DOM 与 Canvas/WebGL 无 DOM 应用的流程图自动点击器：组合点击、滚动、拖拽、按键与宏录制回放（双引擎 CDP 原生 + DOM 静默）。"
+  },
+  "actionTitle": {
+    "message": "AutoClick Anywhere - 流程图自动点击器"
+  },
+  "cmdToggleRun": {
+    "message": "启动 / 暂停 / 继续流程执行"
+  },
+  "cmdToggleRecord": {
+    "message": "开始 / 完成宏录制"
+  },
+  "cmdToggleHud": {
+    "message": "显示 / 隐藏页面悬浮面板"
   }
 }

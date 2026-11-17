@@ -21,7 +21,9 @@
 
 ---
 
-## Key Features (v1.1.0)
+## Key Features (v1.2.0)
+
+- **Multi-Language i18n & Live Sync (New in v1.2.0)**: Built-in **简体中文 / 繁體中文 / English / 日本語 / 한국어** UI languages with browser auto-detection (`auto`), native `_locales` manifest/command localization, and instant live switching across the floating HUD, Popup, and Test Playground.
 
 ### 1. Dual-Engine Input Dispatch (Live Hot-Switchable)
 
@@ -67,7 +69,7 @@ flowchart LR
 ## Installation
 
 ### Option 1: Pre-built Release (No Node.js Required)
-1. Download **`autoclick-anywhere-v1.1.0.zip`** from [GitHub Releases](https://github.com/littepointR/autoclick-anywhere/releases) and extract it.
+1. Download **`autoclick-anywhere-v1.2.0.zip`** from [GitHub Releases](https://github.com/littepointR/autoclick-anywhere/releases) and extract it.
 2. Open `chrome://extensions/` (Chrome) or `edge://extensions/` (Edge) and enable **Developer mode**.
 3. Click **Load unpacked** and select the extracted folder.
 

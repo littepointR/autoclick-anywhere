@@ -1,11 +1,13 @@
+import { fmt, getMessages } from '../shared/i18n.ts';
 import { createLocatorFromPoint, resolveTargetLocator } from '../shared/selector.ts';
-import type { FlowStep, TargetLocator, VisualEffect } from '../shared/types.ts';
+import type { FlowStep, LanguageSetting, TargetLocator, VisualEffect } from '../shared/types.ts';
 
 export interface OverlayUpdateInput {
   steps: FlowStep[];
   showPins: boolean;
   isRunning: boolean;
   activeStepId: string | null;
+  language?: LanguageSetting;
 }
 
 export interface OverlayCallbacks {
@@ -76,6 +78,7 @@ export class OverlayManager {
 
     if (!input.showPins) return;
 
+    const t = getMessages(input.language ?? 'auto');
     let hasArrows = false;
 
     input.steps.forEach((step, idx) => {
@@ -98,7 +101,12 @@ export class OverlayManager {
         isCanvas: start.isCanvas,
         isExecuting,
         extraClass: step.type === 'wheel' ? 'is-scroll' : '',
-        title: `#${idx + 1} ${step.type.toUpperCase()} (${start.x}, ${start.y}) · 按住拖拽可调整坐标`,
+        title: fmt(t.overlay.pinTitle, {
+          idx: idx + 1,
+          type: t.stepTypes[step.type],
+          x: start.x,
+          y: start.y,
+        }),
         stepId: step.id,
       });
       this.pinsLayer.appendChild(pin);
@@ -110,7 +118,14 @@ export class OverlayManager {
         }
         const end = resolveTargetLocator(step.endTarget, document, false);
         this.drawDragArrow(step.id, start.x, start.y, end.x, end.y);
-        const endPin = this.createEndPinElement(idx + 1, end.x, end.y, step.id, isExecuting);
+        const endPin = this.createEndPinElement(
+          idx + 1,
+          end.x,
+          end.y,
+          step.id,
+          isExecuting,
+          fmt(t.overlay.endPinTitle, { idx: idx + 1, x: end.x, y: end.y }),
+        );
         this.pinsLayer.appendChild(endPin);
       }
     });
@@ -181,11 +196,12 @@ export class OverlayManager {
     y: number,
     stepId: string,
     isExecuting: boolean,
+    title: string,
   ): HTMLDivElement {
     const endPin = document.createElement('div');
     endPin.className = `ac-pin-end ${isExecuting ? 'is-executing-pin' : ''}`.trim();
     endPin.textContent = `${index}B`;
-    endPin.title = `#${index} 拖拽终点 (${x}, ${y}) · 按住拖拽可调整`;
+    endPin.title = title;
     endPin.style.left = `${x}px`;
     endPin.style.top = `${y}px`;
 
@@ -280,7 +296,7 @@ export class OverlayManager {
     shield.addEventListener('pointercancel', onCancel);
   }
 
-  spawnEffect(effect: VisualEffect): void {
+  spawnEffect(effect: VisualEffect, language: LanguageSetting = 'auto'): void {
     if (effect.kind === 'click') {
       const ripple = document.createElement('div');
       ripple.className = `ac-ripple ${effect.button === 'right' ? 'is-right' : ''} ${effect.isCanvas ? 'is-canvas' : ''}`.trim();
@@ -292,16 +308,17 @@ export class OverlayManager {
     }
 
     if (effect.kind === 'wheel') {
+      const t = getMessages(language);
       const badge = document.createElement('div');
       badge.className = 'ac-wheel-fx';
       const arrow =
         Math.abs(effect.deltaY) >= Math.abs(effect.deltaX)
           ? effect.deltaY >= 0
-            ? '↓ 滚动'
-            : '↑ 滚动'
+            ? t.overlay.scrollDown
+            : t.overlay.scrollUp
           : effect.deltaX >= 0
-            ? '→ 滚动'
-            : '← 滚动';
+            ? t.overlay.scrollRight
+            : t.overlay.scrollLeft;
       badge.textContent = arrow;
       badge.style.left = `${effect.x}px`;
       badge.style.top = `${effect.y}px`;

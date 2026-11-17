@@ -1,0 +1,20 @@
+{
+  "extName": {
+    "message": "AutoClick Anywhere - DOM & WebGL 連打"
+  },
+  "extDesc": {
+    "message": "DOM・Shadow DOM と Canvas/WebGL アプリ対応のフローチャート自動クリック＆マクロ録画拡張（CDP Trusted＋DOM 合成のデュアルエンジン）。"
+  },
+  "actionTitle": {
+    "message": "AutoClick Anywhere - フローチャート自動クリック"
+  },
+  "cmdToggleRun": {
+    "message": "フローの開始 / 一時停止 / 再開"
+  },
+  "cmdToggleRecord": {
+    "message": "マクロ録画の開始 / 完了"
+  },
+  "cmdToggleHud": {
+    "message": "このページでHUDを表示 / 非表示"
+  }
+}

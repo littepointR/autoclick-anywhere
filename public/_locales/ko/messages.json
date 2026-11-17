@@ -1,0 +1,20 @@
+{
+  "extName": {
+    "message": "AutoClick Anywhere - DOM & WebGL 오토클리커"
+  },
+  "extDesc": {
+    "message": "DOM 및 Canvas/WebGL 앱을 모두 지원하는 플로우차트 오토클리커 & 매크로 녹화 확장 프로그램 (CDP 신뢰 입력 + 무음 DOM 듀얼 엔진)."
+  },
+  "actionTitle": {
+    "message": "AutoClick Anywhere - 플로우차트 오토클리커"
+  },
+  "cmdToggleRun": {
+    "message": "플로우 시작 / 일시정지 / 재개"
+  },
+  "cmdToggleRecord": {
+    "message": "매크로 녹화 시작 / 완료"
+  },
+  "cmdToggleHud": {
+    "message": "현재 페이지에서 HUD 표시 / 숨기기"
+  }
+}

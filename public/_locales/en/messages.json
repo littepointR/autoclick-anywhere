@@ -4,5 +4,17 @@
   },
   "extDesc": {
     "message": "Visual flowchart auto-clicker & macro recorder for DOM pages and Canvas/WebGL apps (dual-engine CDP trusted + silent DOM)."
+  },
+  "actionTitle": {
+    "message": "AutoClick Anywhere - Visual Flowchart Clicker"
+  },
+  "cmdToggleRun": {
+    "message": "Start / Pause / Resume active flow"
+  },
+  "cmdToggleRecord": {
+    "message": "Start / Finish macro recording"
+  },
+  "cmdToggleHud": {
+    "message": "Show / Hide floating HUD on current page"
   }
 }

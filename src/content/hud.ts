@@ -1,17 +1,26 @@
 import { createFlowStep, createId, createPresetFlow } from '../shared/constants.ts';
-import { computeClampedHudPosition, getViewportBounds } from '../shared/viewport.ts';
+import {
+  SUPPORTED_LOCALES,
+  fmt,
+  getMessages,
+  resolveLocale,
+  translateFallbackReason,
+  type I18nMessages,
+} from '../shared/i18n.ts';
 import type {
   ClickKind,
   EngineMode,
   FlowRecord,
   FlowStep,
   FlowStepType,
+  LanguageSetting,
   LocatorMode,
   MouseButtonType,
   PersistedState,
   RuntimeStatus,
   ScrollDirection,
 } from '../shared/types.ts';
+import { computeClampedHudPosition, getViewportBounds } from '../shared/viewport.ts';
 
 export interface HudViewState {
   hudVisible: boolean;
@@ -58,21 +67,6 @@ function stepEmoji(type: FlowStepType): string {
   }
 }
 
-function stepTypeLabel(type: FlowStepType): string {
-  switch (type) {
-    case 'click':
-      return '点击';
-    case 'wheel':
-      return '滚动';
-    case 'drag':
-      return '拖拽';
-    case 'key':
-      return '按键';
-    case 'wait':
-      return '等待';
-  }
-}
-
 function formatCdMs(ms: number): string {
   const clamped = Math.max(0, ms);
   if (clamped >= 1000) {
@@ -81,32 +75,37 @@ function formatCdMs(ms: number): string {
   return `${Math.ceil(clamped)}ms`;
 }
 
-function formatStepSummary(step: FlowStep): string {
+function formatStepSummary(step: FlowStep, t: I18nMessages): string {
   if (step.name && step.name.trim()) return step.name.trim();
   if (step.type === 'click') {
-    if (step.followCursor) return '跟随鼠标实时位置';
-    if (step.target) return `${step.target.label ?? '目标'} (${step.target.clientX},${step.target.clientY})`;
-    return '视口中心点击';
+    if (step.followCursor) return t.hud.followCursorSummary;
+    if (step.target) {
+      return `${step.target.label ?? ''} (${step.target.clientX},${step.target.clientY})`.trim();
+    }
+    return t.hud.viewportCenterSummary;
   }
   if (step.type === 'wheel') {
-    if (step.usePageScroll || !step.target) return '页面/光标位置滚动';
-    return `${step.target.label ?? '容器'} (${step.target.clientX},${step.target.clientY})`;
+    if (step.usePageScroll || !step.target) return t.hud.pageScrollSummary;
+    return `${step.target.label ?? ''} (${step.target.clientX},${step.target.clientY})`.trim();
   }
   if (step.type === 'drag') {
-    const a = step.target ? `(${step.target.clientX},${step.target.clientY})` : '起点未定';
-    const b = step.endTarget ? `(${step.endTarget.clientX},${step.endTarget.clientY})` : '终点未定';
+    const a = step.target ? `(${step.target.clientX},${step.target.clientY})` : t.hud.dragStartUnset;
+    const b = step.endTarget ? `(${step.endTarget.clientX},${step.endTarget.clientY})` : t.hud.dragEndUnset;
     return `${a} → ${b}`;
   }
   if (step.type === 'key') {
-    return `按键 [${step.key ?? 'Space'}]`;
+    return fmt(t.hud.keySummary, { key: step.key ?? 'Space' });
   }
-  return `等待 ${step.waitMs}ms`;
+  return fmt(t.hud.waitSummary, { ms: step.waitMs });
 }
 
-function resolveMainChipText(step: FlowStep): string {
-  const rep = step.repeatCount === 0 ? '∞次' : step.repeatCount > 1 ? `×${step.repeatCount}` : '1次';
-  if (step.type === 'wait') return `等待 ${step.waitMs}ms`;
-  if (step.type === 'drag') return `拖拽 ${step.dragDurationMs}ms · ${rep}`;
+function resolveMainChipText(step: FlowStep, t: I18nMessages): string {
+  const rep =
+    step.repeatCount === 0
+      ? t.hud.repInfinite
+      : fmt(t.hud.repTimes, { n: Math.max(1, step.repeatCount) });
+  if (step.type === 'wait') return fmt(t.hud.chipWait, { ms: step.waitMs });
+  if (step.type === 'drag') return fmt(t.hud.chipDrag, { ms: step.dragDurationMs, rep });
   if (step.type === 'wheel') {
     const dir =
       step.direction === 'down'
@@ -118,12 +117,18 @@ function resolveMainChipText(step: FlowStep): string {
             : step.direction === 'right'
               ? `→${Math.abs(step.deltaX) || 240}`
               : `(${step.deltaX},${step.deltaY})`;
-    return `滚动 ${dir} · ${rep}`;
+    return fmt(t.hud.chipScroll, { dir, rep });
   }
-  if (step.type === 'key') return `按键 [${step.key || 'Space'}] · ${rep}`;
-  const btn = step.button === 'right' ? '右' : step.button === 'middle' ? '中' : '左';
-  const kind = step.clickKind === 'double' ? '双击' : step.clickKind === 'hold' ? `长按${step.holdMs}ms` : '单击';
-  return `${btn}键${kind} · ${rep}`;
+  if (step.type === 'key') return fmt(t.hud.chipKey, { key: step.key || 'Space', rep });
+  const btn =
+    step.button === 'right' ? t.hud.btnRight : step.button === 'middle' ? t.hud.btnMiddle : t.hud.btnLeft;
+  const kind =
+    step.clickKind === 'double'
+      ? t.hud.kindDouble
+      : step.clickKind === 'hold'
+        ? fmt(t.hud.kindHold, { ms: step.holdMs })
+        : t.hud.kindSingle;
+  return fmt(t.hud.chipClick, { btn, kind, rep });
 }
 
 export class HudPanel {
@@ -193,6 +198,10 @@ export class HudPanel {
     this.render();
   }
 
+  private getMessages(): I18nMessages {
+    return getMessages(this.state.settings.language);
+  }
+
   private getActiveFlow(): FlowRecord {
     return (
       this.state.flows.find((f) => f.id === this.state.activeFlowId) ??
@@ -223,14 +232,15 @@ export class HudPanel {
       return;
     }
 
+    const t = this.getMessages();
     const pill = this.panelEl.querySelector('.ac-status-pill');
     if (pill) {
-      pill.innerHTML = this.formatStatusPillHtml();
+      pill.innerHTML = this.formatStatusPillHtml(t);
     }
 
     const recBtn = this.panelEl.querySelector('#ac-macro-record-btn');
     if (recBtn && this.status.isRecording) {
-      recBtn.textContent = `⏹ 完成录制并生成流程 (已录 ${this.status.recordedStepsCount} 步)`;
+      recBtn.textContent = fmt(t.hud.recordFinishBtn, { count: this.status.recordedStepsCount });
     }
 
     this.applyTelemetryFrame();
@@ -260,21 +270,22 @@ export class HudPanel {
     }
   }
 
-  private formatStatusPillHtml(): string {
+  private formatStatusPillHtml(t: I18nMessages): string {
     if (this.status.runState === 'running') {
-      const loopPart =
-        this.status.totalLoops > 0
-          ? `轮 ${this.status.currentLoop}/${this.status.totalLoops}`
-          : `轮 ${this.status.currentLoop}/∞`;
-      return `运行中 · ${loopPart} · <strong>${this.status.executedCount}</strong>次`;
+      const total = this.status.totalLoops > 0 ? String(this.status.totalLoops) : '∞';
+      return fmt(t.hud.statusRunning, {
+        loop: this.status.currentLoop,
+        total,
+        count: this.status.executedCount,
+      });
     }
     if (this.status.runState === 'paused') {
-      return `<span style="color:#fbbf24;">⏸ 已暂停</span> · <strong>${this.status.executedCount}</strong>次`;
+      return fmt(t.hud.statusPaused, { count: this.status.executedCount });
     }
     if (this.status.isRecording) {
-      return `<span style="color:#fb7185;">录制中</span> · <strong>${this.status.recordedStepsCount}</strong>步`;
+      return fmt(t.hud.statusRecording, { count: this.status.recordedStepsCount });
     }
-    return '空闲就绪';
+    return t.hud.statusIdle;
   }
 
   private ensureActiveInViewport(): void {
@@ -441,7 +452,6 @@ export class HudPanel {
     const activeId = this.status.runState !== 'idle' ? this.status.currentStepId : null;
     const isPaused = this.status.runState === 'paused';
 
-    // Compute live remaining & ratio for timed phases (Skill CD)
     const timing = this.status.phaseTiming;
     let cdRatio = 0;
     let remMs = 0;
@@ -520,11 +530,13 @@ export class HudPanel {
       return;
     }
 
+    const t = this.getMessages();
+
     if (this.view.hudMinimized) {
       this.panelEl.classList.add('ac-hidden');
       this.miniEl.classList.remove('ac-hidden');
       this.stopTelemetryLoop();
-      this.renderMini();
+      this.renderMini(t);
       this.ensureInViewport(this.miniEl);
       return;
     }
@@ -532,13 +544,13 @@ export class HudPanel {
     this.miniEl.classList.add('ac-hidden');
     this.panelEl.classList.remove('ac-hidden');
     this.panelEl.classList.toggle('is-wide', this.state.hudWide);
-    this.renderFull();
+    this.renderFull(t);
     this.ensureInViewport(this.panelEl);
     this.applyTelemetryFrame();
     this.syncTelemetryLoop();
   }
 
-  private renderMini(): void {
+  private renderMini(t: I18nMessages): void {
     const dotCls =
       this.status.runState === 'running'
         ? 'is-running'
@@ -552,18 +564,18 @@ export class HudPanel {
       this.status.runState === 'running'
         ? '⏸'
         : this.status.runState === 'paused'
-          ? '▶ 继续'
+          ? t.hud.resumeShort
           : '▶';
     const prCls = this.status.runState === 'paused' ? 'ac-btn-warn' : 'ac-btn-primary';
     const pinsOn = this.state.settings.showPins;
 
     this.miniEl.innerHTML = `
       <span class="ac-brand-dot ${dotCls}"></span>
-      <strong style="font-size:11px;">流程 (${this.status.executedCount})</strong>
-      <button class="ac-icon-btn ${pinsOn ? 'is-on' : ''}" data-act="toggle-pins" title="显示/隐藏点位 (Alt+P)">${pinsOn ? '👁️' : '🙈'}</button>
-      <button class="ac-btn ac-btn-sm ${prCls}" data-act="pause-resume" ${this.status.isRecording ? 'disabled' : ''}>${prText}</button>
+      <strong style="font-size:11px;">${escapeHtml(fmt(t.hud.miniTitle, { count: this.status.executedCount }))}</strong>
+      <button class="ac-icon-btn ${pinsOn ? 'is-on' : ''}" data-act="toggle-pins" title="${escapeHtml(t.hud.pinsToggleTitle)}">${pinsOn ? '👁️' : '🙈'}</button>
+      <button class="ac-btn ac-btn-sm ${prCls}" data-act="pause-resume" ${this.status.isRecording ? 'disabled' : ''}>${escapeHtml(prText)}</button>
       ${this.status.runState !== 'idle' ? `<button class="ac-btn ac-btn-sm ac-btn-danger" data-act="stop">⏹</button>` : ''}
-      <button class="ac-icon-btn" data-act="expand" title="展开面板">展开</button>
+      <button class="ac-icon-btn" data-act="expand" title="${escapeHtml(t.hud.expandBtn)}">${escapeHtml(t.hud.expandBtn)}</button>
     `;
 
     this.miniEl.querySelector('[data-act="toggle-pins"]')?.addEventListener('click', () => {
@@ -580,7 +592,7 @@ export class HudPanel {
     });
   }
 
-  private renderFull(): void {
+  private renderFull(t: I18nMessages): void {
     const flow = this.getActiveFlow();
     const isRunning = this.status.runState === 'running';
     const isPaused = this.status.runState === 'paused';
@@ -599,49 +611,56 @@ export class HudPanel {
     const displayedEngine = isSessionActive ? this.status.effectiveEngine : this.state.settings.engine;
     const pinsOn = this.state.settings.showPins;
 
-    const fallbackBanner = this.status.fallbackReason
-      ? `<div class="ac-fallback-note">⚠️ ${escapeHtml(this.status.fallbackReason)}</div>`
+    const translatedFallback = translateFallbackReason(this.status.fallbackReason, t);
+    const fallbackBanner = translatedFallback
+      ? `<div class="ac-fallback-note">⚠️ ${escapeHtml(translatedFallback)}</div>`
       : '';
 
     const primaryBtnHtml = isRunning
-      ? `<button class="ac-btn ac-btn-warn" style="flex:1;" id="ac-pause-resume-btn">⏸ 暂停 (F8)</button>
-         <button class="ac-btn ac-btn-danger" id="ac-stop-btn">⏹ 停止 (Esc)</button>`
+      ? `<button class="ac-btn ac-btn-warn" style="flex:1;" id="ac-pause-resume-btn">${escapeHtml(t.hud.pauseBtn)}</button>
+         <button class="ac-btn ac-btn-danger" id="ac-stop-btn">${escapeHtml(t.hud.stopBtn)}</button>`
       : isPaused
-        ? `<button class="ac-btn ac-btn-primary" style="flex:1;" id="ac-pause-resume-btn">▶ 继续执行 (F8)</button>
-           <button class="ac-btn ac-btn-danger" id="ac-stop-btn">⏹ 停止重置</button>`
-        : `<button class="ac-btn ac-btn-primary" style="flex:1;" id="ac-pause-resume-btn" ${flow.steps.length === 0 || isRecording ? 'disabled' : ''}>▶ 启动流程 (F8)</button>`;
+        ? `<button class="ac-btn ac-btn-primary" style="flex:1;" id="ac-pause-resume-btn">${escapeHtml(t.hud.resumeBtn)}</button>
+           <button class="ac-btn ac-btn-danger" id="ac-stop-btn">${escapeHtml(t.hud.stopResetBtn)}</button>`
+        : `<button class="ac-btn ac-btn-primary" style="flex:1;" id="ac-pause-resume-btn" ${flow.steps.length === 0 || isRecording ? 'disabled' : ''}>${escapeHtml(t.hud.startBtn)}</button>`;
 
     const recordBtnHtml = isRecording
-      ? `<button class="ac-btn ac-btn-danger" style="flex:1;" id="ac-macro-record-btn">⏹ 完成录制并生成流程 (已录 ${this.status.recordedStepsCount} 步)</button>`
-      : `<button class="ac-btn ac-btn-record" id="ac-macro-record-btn" ${isSessionActive ? 'disabled' : ''} title="录制操作并在结束后自动转为流程图">🔴 录制宏转流程 (F9)</button>`;
+      ? `<button class="ac-btn ac-btn-danger" style="flex:1;" id="ac-macro-record-btn">${escapeHtml(fmt(t.hud.recordFinishBtn, { count: this.status.recordedStepsCount }))}</button>`
+      : `<button class="ac-btn ac-btn-record" id="ac-macro-record-btn" ${isSessionActive ? 'disabled' : ''} title="${escapeHtml(t.hud.recordBtnTitle)}">${escapeHtml(t.hud.recordStartBtn)}</button>`;
 
     const flowOptions = this.state.flows
       .map((f) => {
         const tag = f.source === 'macro' ? '🎬 ' : '';
-        return `<option value="${f.id}" ${f.id === flow.id ? 'selected' : ''}>${tag}${escapeHtml(f.name)} (${f.steps.length}步)</option>`;
+        return `<option value="${f.id}" ${f.id === flow.id ? 'selected' : ''}>${tag}${escapeHtml(f.name)} (${f.steps.length})</option>`;
       })
       .join('');
+
+    const langOptions = SUPPORTED_LOCALES.map((item) => {
+      const label = item.value === 'auto' ? t.autoLangOption : item.nativeLabel;
+      return `<option value="${item.value}" ${this.state.settings.language === item.value ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+    }).join('');
 
     this.panelEl.innerHTML = `
       <div class="ac-hud-header" id="ac-drag-handle">
         <div class="ac-brand">
           <span class="ac-brand-dot ${dotCls}"></span>
-          <span>AutoClick 流程图控制台</span>
+          <span>${escapeHtml(t.hud.title)}</span>
         </div>
         <div class="ac-header-actions">
-          <button class="ac-icon-btn ${pinsOn ? 'is-on' : ''}" data-act="toggle-pins" title="一键显示/隐藏放置的目标点 (Alt+P)">${pinsOn ? '👁️ 点位' : '🙈 点位'}</button>
-          <button class="ac-icon-btn" data-act="toggle-wide" title="切换宽/窄面板">⇔</button>
-          <button class="ac-icon-btn" data-act="minimize" title="最小化为悬浮胶囊">－</button>
-          <button class="ac-icon-btn" data-act="hide" title="在本页隐藏面板 (Alt+H)">×</button>
+          <select class="ac-lang-select" data-act="lang-select" title="Language">${langOptions}</select>
+          <button class="ac-icon-btn ${pinsOn ? 'is-on' : ''}" data-act="toggle-pins" title="${escapeHtml(t.hud.pinsToggleTitle)}">${escapeHtml(pinsOn ? t.hud.pinsOnBtn : t.hud.pinsOffBtn)}</button>
+          <button class="ac-icon-btn" data-act="toggle-wide" title="${escapeHtml(t.hud.toggleWideTitle)}">⇔</button>
+          <button class="ac-icon-btn" data-act="minimize" title="${escapeHtml(t.hud.minimizeTitle)}">－</button>
+          <button class="ac-icon-btn" data-act="hide" title="${escapeHtml(t.hud.hideTitle)}">×</button>
         </div>
       </div>
 
       <div class="ac-engine-bar">
-        <div class="ac-segmented" title="支持运行中实时热切换引擎">
-          <button class="ac-seg-btn ${displayedEngine === 'cdp' ? 'is-active' : ''}" data-engine="cdp">⚡ CDP 原生</button>
-          <button class="ac-seg-btn ${displayedEngine === 'dom' ? 'is-active' : ''}" data-engine="dom">🔇 DOM 静默</button>
+        <div class="ac-segmented" title="${escapeHtml(t.hud.engineSwitchTitle)}">
+          <button class="ac-seg-btn ${displayedEngine === 'cdp' ? 'is-active' : ''}" data-engine="cdp">${escapeHtml(t.hud.engineCdp)}</button>
+          <button class="ac-seg-btn ${displayedEngine === 'dom' ? 'is-active' : ''}" data-engine="dom">${escapeHtml(t.hud.engineDom)}</button>
         </div>
-        <div class="ac-status-pill">${this.formatStatusPillHtml()}</div>
+        <div class="ac-status-pill">${this.formatStatusPillHtml(t)}</div>
       </div>
 
       ${fallbackBanner}
@@ -654,26 +673,26 @@ export class HudPanel {
       <div class="ac-flow-bar">
         <div class="ac-row">
           <select class="ac-select" id="ac-flow-select" style="flex:1;" ${isSessionActive || isRecording ? 'disabled' : ''}>${flowOptions}</select>
-          <button class="ac-icon-btn" id="ac-flow-rename" ${isSessionActive || isRecording ? 'disabled' : ''} title="重命名流程">改名</button>
-          <button class="ac-icon-btn" id="ac-flow-del" ${isSessionActive || isRecording || this.state.flows.length <= 1 ? 'disabled' : ''} title="删除流程">删</button>
-          <button class="ac-icon-btn" id="ac-flow-export" title="导出 JSON">导出</button>
-          <button class="ac-icon-btn" id="ac-flow-import" ${isSessionActive || isRecording ? 'disabled' : ''} title="导入 JSON">导入</button>
+          <button class="ac-icon-btn" id="ac-flow-rename" ${isSessionActive || isRecording ? 'disabled' : ''} title="${escapeHtml(t.hud.renameTitle)}">${escapeHtml(t.hud.renameBtn)}</button>
+          <button class="ac-icon-btn" id="ac-flow-del" ${isSessionActive || isRecording || this.state.flows.length <= 1 ? 'disabled' : ''} title="${escapeHtml(t.hud.deleteTitle)}">${escapeHtml(t.hud.deleteBtn)}</button>
+          <button class="ac-icon-btn" id="ac-flow-export" title="${escapeHtml(t.hud.exportTitle)}">${escapeHtml(t.hud.exportBtn)}</button>
+          <button class="ac-icon-btn" id="ac-flow-import" ${isSessionActive || isRecording ? 'disabled' : ''} title="${escapeHtml(t.hud.importTitle)}">${escapeHtml(t.hud.importBtn)}</button>
         </div>
         <div class="ac-row" style="justify-content:space-between;">
           <div class="ac-row" style="gap:4px;">
-            <span style="font-size:10px; color:#94a3b8;">新建:</span>
-            <button class="ac-icon-btn" data-preset="single" ${isSessionActive || isRecording ? 'disabled' : ''}>+单点</button>
-            <button class="ac-icon-btn" data-preset="scroll" ${isSessionActive || isRecording ? 'disabled' : ''}>+滚动</button>
-            <button class="ac-icon-btn" data-preset="empty" ${isSessionActive || isRecording ? 'disabled' : ''}>+空白</button>
+            <span style="font-size:10px; color:#94a3b8;">${escapeHtml(t.hud.newPrefix)}</span>
+            <button class="ac-icon-btn" data-preset="single" ${isSessionActive || isRecording ? 'disabled' : ''}>${escapeHtml(t.hud.presetSingle)}</button>
+            <button class="ac-icon-btn" data-preset="scroll" ${isSessionActive || isRecording ? 'disabled' : ''}>${escapeHtml(t.hud.presetScroll)}</button>
+            <button class="ac-icon-btn" data-preset="empty" ${isSessionActive || isRecording ? 'disabled' : ''}>${escapeHtml(t.hud.presetEmpty)}</button>
           </div>
           <div class="ac-row" style="gap:6px;">
-            <label class="ac-check" style="font-size:10px;"><input type="checkbox" id="ac-rec-wheel" ${this.state.settings.recordWheel ? 'checked' : ''} />录滚轮</label>
-            <label class="ac-check" style="font-size:10px;"><input type="checkbox" id="ac-rec-key" ${this.state.settings.recordKeyboard ? 'checked' : ''} />录按键</label>
+            <label class="ac-check" style="font-size:10px;"><input type="checkbox" id="ac-rec-wheel" ${this.state.settings.recordWheel ? 'checked' : ''} />${escapeHtml(t.hud.recWheelLabel)}</label>
+            <label class="ac-check" style="font-size:10px;"><input type="checkbox" id="ac-rec-key" ${this.state.settings.recordKeyboard ? 'checked' : ''} />${escapeHtml(t.hud.recKeyLabel)}</label>
           </div>
         </div>
         <div class="ac-grid-3">
           <div class="ac-field">
-            <label>流程倍速</label>
+            <label>${escapeHtml(t.hud.speedLabel)}</label>
             <select class="ac-select" id="ac-flow-speed" ${isRunning || isRecording ? 'disabled' : ''}>
               <option value="0.5" ${flow.playbackSpeed === 0.5 ? 'selected' : ''}>0.5x</option>
               <option value="1" ${flow.playbackSpeed === 1 ? 'selected' : ''}>1.0x</option>
@@ -683,35 +702,42 @@ export class HudPanel {
             </select>
           </div>
           <div class="ac-field">
-            <label>循环 (0=无限)</label>
+            <label>${escapeHtml(t.hud.loopsLabel)}</label>
             <input class="ac-input" type="number" min="0" id="ac-flow-loops" value="${flow.loopCount}" ${isRunning || isRecording ? 'disabled' : ''} />
           </div>
           <div class="ac-field">
-            <label>轮次CD (ms)</label>
+            <label>${escapeHtml(t.hud.loopCdLabel)}</label>
             <input class="ac-input" type="number" min="0" id="ac-flow-loop-delay" value="${flow.loopDelayMs}" ${isRunning || isRecording ? 'disabled' : ''} />
           </div>
         </div>
       </div>
 
       <div class="ac-palette-bar">
-        <span style="font-size:10px; color:#94a3b8; font-weight:700;">添加步骤:</span>
-        <button class="ac-btn ac-btn-sm ac-btn-primary" id="ac-add-click" ${structuralLocked ? 'disabled' : ''}>🎯 点击</button>
-        <button class="ac-btn ac-btn-sm" id="ac-add-wheel" ${structuralLocked ? 'disabled' : ''}>🎡 滚动</button>
-        <button class="ac-btn ac-btn-sm" id="ac-add-drag" ${structuralLocked ? 'disabled' : ''}>✥ 拖拽</button>
-        <button class="ac-btn ac-btn-sm" id="ac-add-key" ${structuralLocked ? 'disabled' : ''}>⌨️ 按键</button>
-        <button class="ac-btn ac-btn-sm" id="ac-add-wait" ${structuralLocked ? 'disabled' : ''}>⏳ 等待</button>
+        <span style="font-size:10px; color:#94a3b8; font-weight:700;">${escapeHtml(t.hud.addStepLabel)}</span>
+        <button class="ac-btn ac-btn-sm ac-btn-primary" id="ac-add-click" ${structuralLocked ? 'disabled' : ''}>${escapeHtml(t.hud.addClick)}</button>
+        <button class="ac-btn ac-btn-sm" id="ac-add-wheel" ${structuralLocked ? 'disabled' : ''}>${escapeHtml(t.hud.addWheel)}</button>
+        <button class="ac-btn ac-btn-sm" id="ac-add-drag" ${structuralLocked ? 'disabled' : ''}>${escapeHtml(t.hud.addDrag)}</button>
+        <button class="ac-btn ac-btn-sm" id="ac-add-key" ${structuralLocked ? 'disabled' : ''}>${escapeHtml(t.hud.addKey)}</button>
+        <button class="ac-btn ac-btn-sm" id="ac-add-wait" ${structuralLocked ? 'disabled' : ''}>${escapeHtml(t.hud.addWait)}</button>
       </div>
 
       <div class="ac-body" id="ac-flow-body"></div>
 
       <div class="ac-footer-hotkeys">
-        <span>F8 启停/暂停 · Esc 停止 · F9 录制 · Alt+P 显隐点位</span>
-        <span>${displayedEngine === 'cdp' ? '可信输入' : 'DOM 合成'}</span>
+        <span>${escapeHtml(t.hud.hotkeysFooter)}</span>
+        <span>${escapeHtml(displayedEngine === 'cdp' ? t.hud.trustedFooter : t.hud.domFooter)}</span>
       </div>
     `;
 
     const handle = this.panelEl.querySelector('#ac-drag-handle') as HTMLElement;
     this.attachDragHandler(handle, this.panelEl);
+
+    this.panelEl.querySelector('[data-act="lang-select"]')?.addEventListener('change', (ev) => {
+      const nextLang = (ev.target as HTMLSelectElement).value as LanguageSetting;
+      this.commitState({
+        settings: { ...this.state.settings, language: nextLang },
+      });
+    });
 
     this.panelEl.querySelector('[data-act="toggle-pins"]')?.addEventListener('click', () => {
       this.actions.onTogglePins();
@@ -751,7 +777,8 @@ export class HudPanel {
     this.panelEl.querySelectorAll('[data-preset]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const kind = btn.getAttribute('data-preset') as 'single' | 'scroll' | 'empty';
-        const nextFlow = createPresetFlow(kind);
+        const locale = resolveLocale(this.state.settings.language);
+        const nextFlow = createPresetFlow(kind, locale);
         this.expandedStepId = nextFlow.steps[0]?.id ?? null;
         this.commitState({
           flows: [nextFlow, ...this.state.flows],
@@ -785,7 +812,7 @@ export class HudPanel {
     });
 
     this.panelEl.querySelector('#ac-flow-rename')?.addEventListener('click', () => {
-      const nextName = window.prompt('输入流程名称：', flow.name);
+      const nextName = window.prompt(t.hud.renamePrompt, flow.name);
       if (nextName && nextName.trim()) {
         this.updateActiveFlow((f) => ({ ...f, name: nextName.trim() }));
       }
@@ -803,7 +830,7 @@ export class HudPanel {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${flow.name.replace(/[^\w\u4e00-\u9fa5-]+/g, '_')}.json`;
+      a.download = `${flow.name.replace(/[^\w\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af-]+/g, '_')}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
@@ -820,17 +847,24 @@ export class HudPanel {
     this.panelEl.querySelector('#ac-add-wait')?.addEventListener('click', () => this.actions.onAddStepWait());
 
     const body = this.panelEl.querySelector('#ac-flow-body') as HTMLElement;
-    this.renderFlowchart(body, flow, structuralLocked);
+    this.renderFlowchart(body, flow, structuralLocked, t);
   }
 
-  private renderFlowchart(body: HTMLElement, flow: FlowRecord, structuralLocked: boolean): void {
+  private renderFlowchart(
+    body: HTMLElement,
+    flow: FlowRecord,
+    structuralLocked: boolean,
+    t: I18nMessages,
+  ): void {
+    const startLabel = flow.source === 'macro' ? t.hud.flowStartMacro : t.hud.flowStartManual;
+
     if (flow.steps.length === 0) {
       body.innerHTML = `
         <div class="ac-flowchart">
-          <div class="ac-flow-start">● 流程起点</div>
+          <div class="ac-flow-start">${escapeHtml(startLabel)}</div>
           <div class="ac-flow-arrow">↓</div>
           <div style="text-align:center; color:#64748b; padding:18px 12px; border:1px dashed rgba(148,163,184,0.28); border-radius:10px;">
-            暂无步骤节点，点击上方「🎯 点击 / 🎡 滚动 / ✥ 拖拽 / ⌨️ 按键 / ⏳ 等待」或点击「🔴 录制宏转流程」开始编排
+            ${escapeHtml(t.hud.emptyFlowHint)}
           </div>
         </div>
       `;
@@ -841,22 +875,22 @@ export class HudPanel {
       .map((step, idx) => {
         const isCanvas = step.target?.tagName === 'CANVAS';
         const isExpanded = this.expandedStepId === step.id;
-        const summary = formatStepSummary(step);
+        const summary = formatStepSummary(step, t);
         const beforeChip =
           step.delayBeforeMs > 0
-            ? `<span class="ac-phase-chip" data-phase-chip="delayBefore"><span class="ac-phase-cd-fill"></span><span class="ac-phase-label">前置 ${step.delayBeforeMs}ms</span></span>`
+            ? `<span class="ac-phase-chip" data-phase-chip="delayBefore"><span class="ac-phase-cd-fill"></span><span class="ac-phase-label">${escapeHtml(fmt(t.hud.chipPreDelay, { ms: step.delayBeforeMs }))}</span></span>`
             : '';
-        const mainChip = `<span class="ac-phase-chip" data-phase-chip="main"><span class="ac-phase-cd-fill"></span><span class="ac-phase-label">${escapeHtml(resolveMainChipText(step))}</span></span>`;
+        const mainChip = `<span class="ac-phase-chip" data-phase-chip="main"><span class="ac-phase-cd-fill"></span><span class="ac-phase-label">${escapeHtml(resolveMainChipText(step, t))}</span></span>`;
         const repeatChip =
           step.repeatCount !== 1
-            ? `<span class="ac-phase-chip" data-phase-chip="repeatInterval"><span class="ac-phase-cd-fill"></span><span class="ac-phase-label">连点间隔 ${step.repeatIntervalMs}ms</span></span>`
+            ? `<span class="ac-phase-chip" data-phase-chip="repeatInterval"><span class="ac-phase-cd-fill"></span><span class="ac-phase-label">${escapeHtml(fmt(t.hud.chipRepeatGap, { ms: step.repeatIntervalMs }))}</span></span>`
             : '';
         const afterChip =
           step.delayAfterMs > 0
-            ? `<span class="ac-phase-chip" data-phase-chip="delayAfter"><span class="ac-phase-cd-fill"></span><span class="ac-phase-label">后置 ${step.delayAfterMs}ms</span></span>`
+            ? `<span class="ac-phase-chip" data-phase-chip="delayAfter"><span class="ac-phase-cd-fill"></span><span class="ac-phase-label">${escapeHtml(fmt(t.hud.chipPostDelay, { ms: step.delayAfterMs }))}</span></span>`
             : '';
 
-        const editorHtml = isExpanded ? this.renderStepEditorHtml(step, structuralLocked) : '';
+        const editorHtml = isExpanded ? this.renderStepEditorHtml(step, structuralLocked, t) : '';
 
         return `
           <div class="ac-flow-arrow" data-arrow-for="${step.id}">↓</div>
@@ -871,14 +905,14 @@ export class HudPanel {
                 <div class="ac-node-head">
                   <div class="ac-node-title">
                     <input type="checkbox" data-act="toggle-step" ${step.enabled ? 'checked' : ''} ${structuralLocked ? 'disabled' : ''} />
-                    <span class="ac-badge ${isCanvas ? 'is-canvas' : ''}">${stepTypeLabel(step.type)}${isCanvas ? '·Canvas' : ''}</span>
+                    <span class="ac-badge ${isCanvas ? 'is-canvas' : ''}">${escapeHtml(t.stepTypes[step.type])}${isCanvas ? '·Canvas' : ''}</span>
                     <span class="ac-node-title-text" title="${escapeHtml(summary)}">${escapeHtml(summary)}</span>
                   </div>
                   <div class="ac-row" style="gap:3px;">
-                    <button class="ac-icon-btn ${isExpanded ? 'is-on' : ''}" data-act="edit" title="展开/收起节点参数">⚙</button>
-                    <button class="ac-icon-btn" data-act="up" ${structuralLocked || idx === 0 ? 'disabled' : ''} title="上移">↑</button>
-                    <button class="ac-icon-btn" data-act="down" ${structuralLocked || idx === flow.steps.length - 1 ? 'disabled' : ''} title="下移">↓</button>
-                    <button class="ac-icon-btn" data-act="del" ${structuralLocked ? 'disabled' : ''} title="删除节点">✕</button>
+                    <button class="ac-icon-btn ${isExpanded ? 'is-on' : ''}" data-act="edit" title="${escapeHtml(t.hud.editTitle)}">⚙</button>
+                    <button class="ac-icon-btn" data-act="up" ${structuralLocked || idx === 0 ? 'disabled' : ''} title="${escapeHtml(t.hud.moveUpTitle)}">↑</button>
+                    <button class="ac-icon-btn" data-act="down" ${structuralLocked || idx === flow.steps.length - 1 ? 'disabled' : ''} title="${escapeHtml(t.hud.moveDownTitle)}">↓</button>
+                    <button class="ac-icon-btn" data-act="del" ${structuralLocked ? 'disabled' : ''} title="${escapeHtml(t.hud.deleteStepTitle)}">✕</button>
                   </div>
                 </div>
                 <div class="ac-phase-pipeline">
@@ -894,12 +928,12 @@ export class HudPanel {
 
     const loopText =
       flow.loopCount === 0
-        ? `无限循环返回起点 · 轮次冷却 ${flow.loopDelayMs}ms`
-        : `循环 ${flow.loopCount} 轮返回起点 · 轮次冷却 ${flow.loopDelayMs}ms`;
+        ? fmt(t.hud.loopInfiniteText, { ms: flow.loopDelayMs })
+        : fmt(t.hud.loopFiniteText, { count: flow.loopCount, ms: flow.loopDelayMs });
 
     body.innerHTML = `
       <div class="ac-flowchart">
-        <div class="ac-flow-start">● 流程起点 (${flow.source === 'macro' ? '宏录制转换' : '可视化编排'})</div>
+        <div class="ac-flow-start">${escapeHtml(startLabel)}</div>
         ${nodesHtml}
         <div class="ac-flow-arrow" data-arrow-for="__loop__">↓</div>
         <div class="ac-flow-loop-node" data-step-id="__loop__">
@@ -908,9 +942,9 @@ export class HudPanel {
             <div class="ac-skill-cd-mask"><span class="ac-skill-cd-text"></span></div>
           </div>
           <div style="flex:1;">
-            <div style="font-weight:700; color:#cbd5e1;">流程循环控制节点</div>
+            <div style="font-weight:700; color:#cbd5e1;">${escapeHtml(t.hud.loopControlTitle)}</div>
             <div class="ac-phase-pipeline" style="margin-top:3px;">
-              <span class="ac-phase-chip" data-phase-chip="loopCooldown"><span class="ac-phase-cd-fill"></span><span class="ac-phase-label">${loopText}</span></span>
+              <span class="ac-phase-chip" data-phase-chip="loopCooldown"><span class="ac-phase-cd-fill"></span><span class="ac-phase-label">${escapeHtml(loopText)}</span></span>
             </div>
           </div>
         </div>
@@ -961,63 +995,63 @@ export class HudPanel {
     });
   }
 
-  private renderStepEditorHtml(step: FlowStep, locked: boolean): string {
+  private renderStepEditorHtml(step: FlowStep, locked: boolean, t: I18nMessages): string {
     const dis = locked ? 'disabled' : '';
 
     let typeSpecific = '';
     if (step.type === 'click') {
       typeSpecific = `
         <div class="ac-row" style="justify-content:space-between;">
-          <label class="ac-check"><input type="checkbox" data-ef="followCursor" ${step.followCursor ? 'checked' : ''} ${dis} />跟随鼠标实时位置</label>
-          <button class="ac-btn ac-btn-sm ac-btn-primary" data-act="pick-start" ${locked || step.followCursor ? 'disabled' : ''}>🎯 重选坐标</button>
+          <label class="ac-check"><input type="checkbox" data-ef="followCursor" ${step.followCursor ? 'checked' : ''} ${dis} />${escapeHtml(t.hud.editorFollowCursor)}</label>
+          <button class="ac-btn ac-btn-sm ac-btn-primary" data-act="pick-start" ${locked || step.followCursor ? 'disabled' : ''}>${escapeHtml(t.hud.editorRepickTarget)}</button>
         </div>
         <div class="ac-grid-3">
           <div class="ac-field">
-            <label>定位方式</label>
+            <label>${escapeHtml(t.hud.editorLocMode)}</label>
             <select class="ac-select" data-ef="locMode" ${dis || !step.target || step.followCursor ? 'disabled' : ''}>
-              <option value="auto" ${step.target?.mode === 'auto' ? 'selected' : ''}>自动识别</option>
-              <option value="canvas-relative" ${step.target?.mode === 'canvas-relative' ? 'selected' : ''}>Canvas比例</option>
-              <option value="dom" ${step.target?.mode === 'dom' ? 'selected' : ''}>DOM选择器</option>
-              <option value="viewport" ${step.target?.mode === 'viewport' ? 'selected' : ''}>固定坐标</option>
+              <option value="auto" ${step.target?.mode === 'auto' ? 'selected' : ''}>${escapeHtml(t.hud.locAuto)}</option>
+              <option value="canvas-relative" ${step.target?.mode === 'canvas-relative' ? 'selected' : ''}>${escapeHtml(t.hud.locCanvas)}</option>
+              <option value="dom" ${step.target?.mode === 'dom' ? 'selected' : ''}>${escapeHtml(t.hud.locDom)}</option>
+              <option value="viewport" ${step.target?.mode === 'viewport' ? 'selected' : ''}>${escapeHtml(t.hud.locViewport)}</option>
             </select>
           </div>
           <div class="ac-field">
-            <label>按键</label>
+            <label>${escapeHtml(t.hud.editorMouseBtn)}</label>
             <select class="ac-select" data-ef="button" ${dis}>
-              <option value="left" ${step.button === 'left' ? 'selected' : ''}>左键</option>
-              <option value="right" ${step.button === 'right' ? 'selected' : ''}>右键</option>
-              <option value="middle" ${step.button === 'middle' ? 'selected' : ''}>中键</option>
+              <option value="left" ${step.button === 'left' ? 'selected' : ''}>${escapeHtml(t.hud.editorBtnLeft)}</option>
+              <option value="right" ${step.button === 'right' ? 'selected' : ''}>${escapeHtml(t.hud.editorBtnRight)}</option>
+              <option value="middle" ${step.button === 'middle' ? 'selected' : ''}>${escapeHtml(t.hud.editorBtnMiddle)}</option>
             </select>
           </div>
           <div class="ac-field">
-            <label>方式</label>
+            <label>${escapeHtml(t.hud.editorClickKind)}</label>
             <select class="ac-select" data-ef="clickKind" ${dis}>
-              <option value="single" ${step.clickKind === 'single' ? 'selected' : ''}>单击</option>
-              <option value="double" ${step.clickKind === 'double' ? 'selected' : ''}>双击</option>
-              <option value="hold" ${step.clickKind === 'hold' ? 'selected' : ''}>长按</option>
+              <option value="single" ${step.clickKind === 'single' ? 'selected' : ''}>${escapeHtml(t.hud.editorKindSingle)}</option>
+              <option value="double" ${step.clickKind === 'double' ? 'selected' : ''}>${escapeHtml(t.hud.editorKindDouble)}</option>
+              <option value="hold" ${step.clickKind === 'hold' ? 'selected' : ''}>${escapeHtml(t.hud.editorKindHold)}</option>
             </select>
           </div>
         </div>
         <div class="ac-grid-2">
-          <div class="ac-field"><label>按住时长 (ms)</label><input class="ac-input" type="number" min="0" data-ef="holdMs" value="${step.holdMs}" ${dis} /></div>
-          <div class="ac-field"><label>坐标偏移 ±px</label><input class="ac-input" type="number" min="0" data-ef="jitterPx" value="${step.jitterPx}" ${dis} /></div>
+          <div class="ac-field"><label>${escapeHtml(t.hud.editorHoldMs)}</label><input class="ac-input" type="number" min="0" data-ef="holdMs" value="${step.holdMs}" ${dis} /></div>
+          <div class="ac-field"><label>${escapeHtml(t.hud.editorJitterPx)}</label><input class="ac-input" type="number" min="0" data-ef="jitterPx" value="${step.jitterPx}" ${dis} /></div>
         </div>
       `;
     } else if (step.type === 'wheel') {
       typeSpecific = `
         <div class="ac-row" style="justify-content:space-between;">
-          <label class="ac-check"><input type="checkbox" data-ef="usePageScroll" ${step.usePageScroll ? 'checked' : ''} ${dis} />整页/鼠标位置滚动</label>
-          <button class="ac-btn ac-btn-sm ac-btn-primary" data-act="pick-start" ${locked || step.usePageScroll ? 'disabled' : ''}>🎯 拾取容器/画布</button>
+          <label class="ac-check"><input type="checkbox" data-ef="usePageScroll" ${step.usePageScroll ? 'checked' : ''} ${dis} />${escapeHtml(t.hud.editorPageScroll)}</label>
+          <button class="ac-btn ac-btn-sm ac-btn-primary" data-act="pick-start" ${locked || step.usePageScroll ? 'disabled' : ''}>${escapeHtml(t.hud.editorPickContainer)}</button>
         </div>
         <div class="ac-grid-3">
           <div class="ac-field">
-            <label>方向</label>
+            <label>${escapeHtml(t.hud.editorScrollDir)}</label>
             <select class="ac-select" data-ef="direction" ${dis}>
-              <option value="down" ${step.direction === 'down' ? 'selected' : ''}>向下</option>
-              <option value="up" ${step.direction === 'up' ? 'selected' : ''}>向上</option>
-              <option value="left" ${step.direction === 'left' ? 'selected' : ''}>向左</option>
-              <option value="right" ${step.direction === 'right' ? 'selected' : ''}>向右</option>
-              <option value="custom" ${step.direction === 'custom' ? 'selected' : ''}>自定义</option>
+              <option value="down" ${step.direction === 'down' ? 'selected' : ''}>${escapeHtml(t.hud.dirDown)}</option>
+              <option value="up" ${step.direction === 'up' ? 'selected' : ''}>${escapeHtml(t.hud.dirUp)}</option>
+              <option value="left" ${step.direction === 'left' ? 'selected' : ''}>${escapeHtml(t.hud.dirLeft)}</option>
+              <option value="right" ${step.direction === 'right' ? 'selected' : ''}>${escapeHtml(t.hud.dirRight)}</option>
+              <option value="custom" ${step.direction === 'custom' ? 'selected' : ''}>${escapeHtml(t.hud.dirCustom)}</option>
             </select>
           </div>
           <div class="ac-field"><label>ΔX (px)</label><input class="ac-input" type="number" data-ef="deltaX" value="${step.deltaX}" ${dis} /></div>
@@ -1027,25 +1061,25 @@ export class HudPanel {
     } else if (step.type === 'drag') {
       typeSpecific = `
         <div class="ac-grid-2">
-          <button class="ac-btn ac-btn-sm" data-act="pick-start" ${dis}>🎯 重选起点 A</button>
-          <button class="ac-btn ac-btn-sm" data-act="pick-end" ${dis}>🎯 重选终点 B</button>
+          <button class="ac-btn ac-btn-sm" data-act="pick-start" ${dis}>${escapeHtml(t.hud.editorPickStartA)}</button>
+          <button class="ac-btn ac-btn-sm" data-act="pick-end" ${dis}>${escapeHtml(t.hud.editorPickEndB)}</button>
         </div>
         <div class="ac-grid-2">
-          <div class="ac-field"><label>拖拽耗时 (ms)</label><input class="ac-input" type="number" min="40" data-ef="dragDurationMs" value="${step.dragDurationMs}" ${dis} /></div>
-          <div class="ac-field"><label>坐标偏移 ±px</label><input class="ac-input" type="number" min="0" data-ef="jitterPx" value="${step.jitterPx}" ${dis} /></div>
+          <div class="ac-field"><label>${escapeHtml(t.hud.editorDragMs)}</label><input class="ac-input" type="number" min="40" data-ef="dragDurationMs" value="${step.dragDurationMs}" ${dis} /></div>
+          <div class="ac-field"><label>${escapeHtml(t.hud.editorJitterPx)}</label><input class="ac-input" type="number" min="0" data-ef="jitterPx" value="${step.jitterPx}" ${dis} /></div>
         </div>
       `;
     } else if (step.type === 'key') {
       typeSpecific = `
         <div class="ac-field">
-          <label>按键捕获（点击输入框后直接按下目标按键）</label>
+          <label>${escapeHtml(t.hud.editorKeyCapture)}</label>
           <input class="ac-input" type="text" data-ef="keyCapture" value="${escapeHtml(step.key ?? 'Space')}" readonly ${dis} />
         </div>
       `;
     } else {
       typeSpecific = `
         <div class="ac-field">
-          <label>等待时长 (ms)</label>
+          <label>${escapeHtml(t.hud.editorWaitMs)}</label>
           <input class="ac-input" type="number" min="10" data-ef="waitMs" value="${step.waitMs}" ${dis} />
         </div>
       `;
@@ -1054,18 +1088,18 @@ export class HudPanel {
     return `
       <div class="ac-node-editor">
         <div class="ac-field">
-          <label>步骤备注名称</label>
-          <input class="ac-input" type="text" data-ef="name" placeholder="可选，如：点击攻击按钮" value="${escapeHtml(step.name ?? '')}" ${dis} />
+          <label>${escapeHtml(t.hud.editorNameLabel)}</label>
+          <input class="ac-input" type="text" data-ef="name" placeholder="${escapeHtml(t.hud.editorNamePlaceholder)}" value="${escapeHtml(step.name ?? '')}" ${dis} />
         </div>
         ${typeSpecific}
         <div class="ac-grid-3">
-          <div class="ac-field"><label>前置等待 ms</label><input class="ac-input" type="number" min="0" data-ef="delayBeforeMs" value="${step.delayBeforeMs}" ${dis} /></div>
-          <div class="ac-field"><label>重复 (0=无限)</label><input class="ac-input" type="number" min="0" data-ef="repeatCount" value="${step.repeatCount}" ${dis} /></div>
-          <div class="ac-field"><label>连点间隔 ms</label><input class="ac-input" type="number" min="10" data-ef="repeatIntervalMs" value="${step.repeatIntervalMs}" ${dis} /></div>
+          <div class="ac-field"><label>${escapeHtml(t.hud.editorPreWaitMs)}</label><input class="ac-input" type="number" min="0" data-ef="delayBeforeMs" value="${step.delayBeforeMs}" ${dis} /></div>
+          <div class="ac-field"><label>${escapeHtml(t.hud.editorRepeatCount)}</label><input class="ac-input" type="number" min="0" data-ef="repeatCount" value="${step.repeatCount}" ${dis} /></div>
+          <div class="ac-field"><label>${escapeHtml(t.hud.editorRepeatGapMs)}</label><input class="ac-input" type="number" min="10" data-ef="repeatIntervalMs" value="${step.repeatIntervalMs}" ${dis} /></div>
         </div>
         <div class="ac-grid-2">
-          <div class="ac-field"><label>后置冷却 ms</label><input class="ac-input" type="number" min="0" data-ef="delayAfterMs" value="${step.delayAfterMs}" ${dis} /></div>
-          <div class="ac-field"><label>时间随机抖动 ±ms</label><input class="ac-input" type="number" min="0" data-ef="jitterMs" value="${step.jitterMs}" ${dis} /></div>
+          <div class="ac-field"><label>${escapeHtml(t.hud.editorPostWaitMs)}</label><input class="ac-input" type="number" min="0" data-ef="delayAfterMs" value="${step.delayAfterMs}" ${dis} /></div>
+          <div class="ac-field"><label>${escapeHtml(t.hud.editorJitterMs)}</label><input class="ac-input" type="number" min="0" data-ef="jitterMs" value="${step.jitterMs}" ${dis} /></div>
         </div>
       </div>
     `;
@@ -1159,6 +1193,7 @@ export class HudPanel {
   private handleImportFile = async (): Promise<void> => {
     const file = this.fileInput.files?.[0];
     if (!file) return;
+    const t = this.getMessages();
     try {
       const raw = await file.text();
       const parsed = JSON.parse(raw) as Partial<FlowRecord>;
@@ -1172,7 +1207,10 @@ export class HudPanel {
       );
       const imported: FlowRecord = {
         id: createId('flow'),
-        name: typeof parsed.name === 'string' && parsed.name ? `${parsed.name} (导入)` : '导入流程',
+        name:
+          typeof parsed.name === 'string' && parsed.name
+            ? `${parsed.name}${t.importedFlowSuffix}`
+            : t.importedFlowDefaultName,
         createdAt: Date.now(),
         source: parsed.source ?? 'manual',
         playbackSpeed: typeof parsed.playbackSpeed === 'number' ? parsed.playbackSpeed : 1,

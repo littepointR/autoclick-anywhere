@@ -1,0 +1,20 @@
+{
+  "extName": {
+    "message": "AutoClick Anywhere - 全能流程圖連點器"
+  },
+  "extDesc": {
+    "message": "同時支援一般 DOM 與 Canvas/WebGL 無 DOM 應用的流程圖自動點擊器：組合點擊、捲動、拖曳、按鍵與巨集錄製回放（雙引擎 CDP 原生 + DOM 靜默）。"
+  },
+  "actionTitle": {
+    "message": "AutoClick Anywhere - 流程圖自動點擊器"
+  },
+  "cmdToggleRun": {
+    "message": "啟動 / 暫停 / 繼續流程執行"
+  },
+  "cmdToggleRecord": {
+    "message": "開始 / 完成巨集錄製"
+  },
+  "cmdToggleHud": {
+    "message": "顯示 / 隱藏頁面懸浮面板"
+  }
+}

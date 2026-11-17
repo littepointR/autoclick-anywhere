@@ -21,7 +21,9 @@
 
 ---
 
-## 核心特性 (v1.1.0)
+## 核心特性 (v1.2.0)
+
+- **多语言界面与实时切换（v1.2.0 新增）**：内置 **简体中文 / 繁體中文 / English / 日本語 / 한국어** 5 种界面语言（支持浏览器语言自动适配 `auto`），覆盖原生 `_locales` 扩展名称与快捷键说明，以及悬浮控制台（HUD）、Popup 与测试靶场之间的毫秒级实时同步切换。
 
 ### 1. 双引擎输入派发架构（运行中支持即时热切换）
 
@@ -68,7 +70,7 @@ flowchart LR
 ## 快速安装
 
 ### 方式一：下载预打包版本（无需 Node.js，推荐）
-1. 前往 [GitHub Releases](https://github.com/littepointR/autoclick-anywhere/releases) 下载最新版本的 **`autoclick-anywhere-v1.1.0.zip`** 并解压到本地文件夹（目录内直接包含 `manifest.json`）。
+1. 前往 [GitHub Releases](https://github.com/littepointR/autoclick-anywhere/releases) 下载最新版本的 **`autoclick-anywhere-v1.2.0.zip`** 并解压到本地文件夹（目录内直接包含 `manifest.json`）。
 2. 打开 Chrome（`chrome://extensions/`）或 Edge（`edge://extensions/`）。
 3. 打开 **「开发人员模式 / Developer mode」** 开关。
 4. 点击 **「加载已解压的扩展程序 / Load unpacked」**，选择刚刚解压出来的文件夹（或直接拖入页面）。

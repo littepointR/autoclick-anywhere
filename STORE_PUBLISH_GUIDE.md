@@ -8,7 +8,7 @@
 
 | 用途 | 本地路径 | 规格校验 |
 | :--- | :--- | :--- |
-| **扩展上传包 (Edge & Chrome 通用)** | `release/autoclick-anywhere-v1.1.0.zip` | Manifest V3，已配置 `_locales/zh_CN` 与 `_locales/en` |
+| **扩展上传包 (Edge & Chrome 通用)** | `release/autoclick-anywhere-v1.2.0.zip` | Manifest V3，已配置 `_locales/{zh_CN,zh_TW,en,ja,ko}` 5 种语言 |
 | **Edge 商店图标 (Logo)** | `release/store-assets/edge-logo-300x300.png` | `300 × 300` PNG |
 | **小型宣传图 (Promo Tile)** | `release/store-assets/promo-small-440x280.png` | `440 × 280` 24-bit RGB PNG（无透明通道） |
 | **商店截图 1（流程图与技能CD）** | `release/store-assets/screenshot-1-flowchart-1280x800.png` | `1280 × 800` 24-bit RGB PNG（无透明通道） |
@@ -77,10 +77,10 @@
 
 1. **Microsoft Edge Add-ons**（免费，审核通常 1–3 个工作日）：
    - 打开：https://partner.microsoft.com/dashboard/microsoftedge/overview
-   - 创建新扩展 → 上传 `release/autoclick-anywhere-v1.1.0.zip` → 上传 `edge-logo-300x300.png` 与 `1280×800` 截图 → 粘贴上方简介、隐私 URL 与审核备注 → 提交发布。
+   - 创建新扩展 → 上传 `release/autoclick-anywhere-v1.2.0.zip` → 上传 `edge-logo-300x300.png` 与 `1280×800` 截图 → 粘贴上方简介、隐私 URL 与审核备注 → 提交发布。
 2. **Chrome Web Store**：
    - 打开：https://chrome.google.com/webstore/devconsole
-   - 点击 **New Item** → 上传 `release/autoclick-anywhere-v1.1.0.zip` → 填写 Store Listing（上传 `promo-small-440x280.png` 与 `1280×800` 截图）、Privacy Practices（粘贴隐私 URL 与权限理由）→ 提交审核。
+   - 点击 **New Item** → 上传 `release/autoclick-anywhere-v1.2.0.zip` → 填写 Store Listing（上传 `promo-small-440x280.png` 与 `1280×800` 截图）、Privacy Practices（粘贴隐私 URL 与权限理由）→ 提交审核。
 
 ---
 

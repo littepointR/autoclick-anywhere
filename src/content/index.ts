@@ -8,6 +8,7 @@ import {
   createFlowStep,
   createId,
 } from '../shared/constants.ts';
+import { fmt, getMessages } from '../shared/i18n.ts';
 import { loadPersistedState, savePersistedState } from '../shared/storage.ts';
 import type {
   BgRequestMessage,
@@ -54,19 +55,19 @@ async function sendToBackground(msg: BgRequestMessage): Promise<DispatchResult> 
   if (typeof chrome !== 'undefined' && chrome.runtime?.id && chrome.runtime.sendMessage) {
     try {
       const res = (await chrome.runtime.sendMessage(msg)) as DispatchResult | undefined;
-      return res ?? { ok: false, fallbackToDom: true, reason: '后台未响应' };
+      return res ?? { ok: false, fallbackToDom: true, reason: 'No background response' };
     } catch (err) {
       return {
         ok: false,
         fallbackToDom: true,
-        reason: err instanceof Error ? err.message : '消息通信失败',
+        reason: err instanceof Error ? err.message : 'Message dispatch failed',
       };
     }
   }
   return {
     ok: false,
     fallbackToDom: true,
-    reason: '当前页面未处于扩展消息环境，已使用 DOM 引擎',
+    reason: 'DOM engine active outside extension messaging context',
   };
 }
 
@@ -79,7 +80,6 @@ async function bootstrapContent(): Promise<void> {
     structuredClone(DEFAULT_PERSISTED_STATE),
   );
 
-  // Per-tab visibility: only visible on pages where user explicitly opened it
   let hudVisible = readSessionHudVisible();
   let hudMinimized = false;
 
@@ -105,7 +105,7 @@ async function bootstrapContent(): Promise<void> {
     { capture: true, passive: true },
   );
 
-  const picker = new TargetPicker(shadow);
+  const picker = new TargetPicker(shadow, state.settings.language);
   let hud: HudPanel;
   let overlay: OverlayManager;
 
@@ -136,12 +136,14 @@ async function bootstrapContent(): Promise<void> {
       showPins: shouldShowPins,
       isRunning: runner.getIsRunning(),
       activeStepId: runner.getStatusSnapshot().currentStepId,
+      language: state.settings.language,
     });
   };
 
   const persistState = (next: PersistedState) => {
     state = next;
     void savePersistedState(state);
+    picker.setLanguage(state.settings.language);
     runner.updateSettings(state.settings);
     recorder.updateOptions({
       recordWheel: state.settings.recordWheel,
@@ -185,7 +187,7 @@ async function bootstrapContent(): Promise<void> {
       hud.restorePointerEvents();
     },
     onVisualEffect: (fx) => {
-      overlay.spawnEffect(fx);
+      overlay.spawnEffect(fx, state.settings.language);
     },
     onStatusChange: () => {
       host.classList.toggle('is-running', runner.getIsRunning());
@@ -243,9 +245,10 @@ async function bootstrapContent(): Promise<void> {
   const stopRecordingAndConvertToFlow = () => {
     const steps = recorder.stop();
     if (steps.length > 0) {
+      const t = getMessages(state.settings.language);
       const flow: FlowRecord = {
         id: createId('flow'),
-        name: `录制流程 #${state.flows.length + 1}`,
+        name: fmt(t.recordedFlowName, { n: state.flows.length + 1 }),
         createdAt: Date.now(),
         source: 'macro',
         playbackSpeed: 1,
@@ -312,13 +315,15 @@ async function bootstrapContent(): Promise<void> {
     onStop: stopRun,
     onToggleRecord: toggleRecord,
     onAddStepPickClick: async () => {
-      const loc = await picker.pickPoint('点击任意 DOM 元素或 Canvas/WebGL 位置添加「点击步骤」');
+      const t = getMessages(state.settings.language);
+      const loc = await picker.pickPoint(t.hud.pickClickPrompt);
       if (loc) {
         appendStepToActiveFlow(createFlowStep({ type: 'click', target: loc }));
       }
     },
     onAddStepPickWheel: async () => {
-      const loc = await picker.pickPoint('点击要滚动的容器或 Canvas/WebGL 位置添加「滚动步骤」（也可随后切为整页滚动）');
+      const t = getMessages(state.settings.language);
+      const loc = await picker.pickPoint(t.hud.pickWheelPrompt);
       if (loc) {
         appendStepToActiveFlow(
           createFlowStep({
@@ -332,7 +337,8 @@ async function bootstrapContent(): Promise<void> {
       }
     },
     onAddStepPickDrag: async () => {
-      const drag = await picker.pickDrag('按住左键从起点拖拽到终点添加「拖拽步骤」（Esc 取消）');
+      const t = getMessages(state.settings.language);
+      const drag = await picker.pickDrag(t.hud.pickDragPrompt);
       if (drag) {
         appendStepToActiveFlow(
           createFlowStep({
@@ -366,8 +372,9 @@ async function bootstrapContent(): Promise<void> {
       );
     },
     onPickStepTarget: async (stepId: string, which: 'start' | 'end') => {
+      const t = getMessages(state.settings.language);
       const loc = await picker.pickPoint(
-        which === 'end' ? '点击设置该拖拽步骤的终点 B（Esc 取消）' : '点击设置该步骤的新目标位置（Esc 取消）',
+        which === 'end' ? t.hud.pickStepEndPrompt : t.hud.pickStepStartPrompt,
       );
       if (!loc) return;
       const active = getActiveFlow();
@@ -377,7 +384,9 @@ async function bootstrapContent(): Promise<void> {
           ...f,
           steps: f.steps.map((s) => {
             if (s.id !== stepId) return s;
-            return which === 'end' ? { ...s, endTarget: loc } : { ...s, target: loc, followCursor: false, usePageScroll: false };
+            return which === 'end'
+              ? { ...s, endTarget: loc }
+              : { ...s, target: loc, followCursor: false, usePageScroll: false };
           }),
         };
       });
@@ -387,12 +396,26 @@ async function bootstrapContent(): Promise<void> {
 
   syncPins();
 
-  // Explicit page trigger (used by built-in playground button)
   window.addEventListener('autoclick:toggle-hud', () => {
     setHudVisible(!hudVisible);
   });
 
-  // Global hotkeys
+  window.addEventListener('autoclick:state-saved', (ev) => {
+    const incoming = (ev as CustomEvent<PersistedState | undefined>).detail;
+    if (!incoming?.settings) return;
+    if (JSON.stringify(incoming.settings) !== JSON.stringify(state.settings)) {
+      state = { ...state, settings: incoming.settings };
+      picker.setLanguage(state.settings.language);
+      runner.updateSettings(state.settings, true);
+      recorder.updateOptions({
+        recordWheel: state.settings.recordWheel,
+        recordKeyboard: state.settings.recordKeyboard,
+      });
+      hud.update(state, getViewState(), getCompositeStatus());
+      syncPins();
+    }
+  });
+
   window.addEventListener(
     'keydown',
     (ev) => {
@@ -459,6 +482,7 @@ async function bootstrapContent(): Promise<void> {
           ...state,
           settings: incoming.settings,
         };
+        picker.setLanguage(state.settings.language);
         runner.updateSettings(state.settings, true);
         recorder.updateOptions({
           recordWheel: state.settings.recordWheel,

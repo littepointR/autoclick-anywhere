@@ -1,3 +1,16 @@
+import { STORAGE_KEY } from '../shared/constants.ts';
+import {
+  SUPPORTED_LOCALES,
+  getMessages,
+  resolveLocale,
+  toHtmlLang,
+} from '../shared/i18n.ts';
+import { loadPersistedState, savePersistedState } from '../shared/storage.ts';
+import type { LanguageSetting, PersistedState } from '../shared/types.ts';
+
+let activeLanguage: LanguageSetting = 'auto';
+let isMovingEnabled = false;
+
 function logEvent(arena: string, type: string, detail: string, isTrusted: boolean): void {
   const container = document.getElementById('event-logs');
   if (!container) return;
@@ -15,14 +28,65 @@ function logEvent(arena: string, type: string, detail: string, isTrusted: boolea
   }
 }
 
-function setupEnvTip(): void {
-  const tip = document.getElementById('env-tip');
-  if (!tip) return;
-  if (window.location.protocol === 'chrome-extension:') {
-    tip.textContent = '扩展本地页：Chrome 限制对扩展页附加 CDP，此处默认自动使用 DOM 合成引擎；执行 `npm run playground` 可在 localhost 测试完整 CDP isTrusted=true！';
-  } else {
-    tip.textContent = 'HTTP 页面模式：可同时验证 CDP 原生可信输入 (isTrusted=true) 与 DOM 静默模式！';
+function setText(id: string, text: string): void {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+function applyPlaygroundI18n(): void {
+  const locale = resolveLocale(activeLanguage);
+  const t = getMessages(locale);
+  document.documentElement.lang = toHtmlLang(locale);
+  document.title = t.playground.pageTitle;
+
+  const langSelect = document.getElementById('pg-lang-select') as HTMLSelectElement | null;
+  if (langSelect) {
+    langSelect.innerHTML = SUPPORTED_LOCALES.map((item) => {
+      const label = item.value === 'auto' ? t.autoLangOption : item.nativeLabel;
+      return `<option value="${item.value}" ${activeLanguage === item.value ? 'selected' : ''}>${label}</option>`;
+    }).join('');
   }
+
+  setText('pg-header-title', t.playground.headerTitle);
+  setText('pg-header-sub', t.playground.headerSub);
+  setText('toggle-hud-btn', t.playground.toggleHudBtn);
+  setText(
+    'env-tip',
+    window.location.protocol === 'chrome-extension:' ? t.playground.envExtension : t.playground.envHttp,
+  );
+
+  setText('pg-arena1-title', t.playground.arena1Title);
+  setText('lbl-dom-click', t.playground.domClickBtn);
+  setText('lbl-dom-dbl', t.playground.domDblBtn);
+  setText('lbl-dom-right', t.playground.domRightBtn);
+  setText('pg-moving-desc', t.playground.movingDesc);
+  setText('toggle-moving-btn', isMovingEnabled ? t.playground.movingStop : t.playground.movingStart);
+  setText('lbl-moving-target', t.playground.movingTargetBtn);
+  setText('pg-scroll-title', t.playground.scrollTitle);
+
+  const rows = document.querySelectorAll<HTMLElement>('#dom-scroll-box .scroll-row');
+  rows.forEach((row, idx) => {
+    row.textContent =
+      idx === rows.length - 1
+        ? `#${idx + 1} ${t.playground.scrollRowBottom}`
+        : `#${idx + 1} ${t.playground.scrollRowPrefix}`;
+  });
+
+  setText('pg-arena2-title', t.playground.arena2Title);
+  setText('lbl-c2d-atk', t.playground.statAtk);
+  setText('lbl-c2d-gold', t.playground.statGold);
+  setText('lbl-c2d-hold', t.playground.statHold);
+  setText('lbl-c2d-zoom', t.playground.statZoom);
+  setText('pg-c2d-tip', t.playground.c2dTip);
+
+  setText('pg-arena3-title', t.playground.arena3Title);
+  setText('lbl-wgl-hits', t.playground.statHits);
+  setText('lbl-wgl-rot', t.playground.statRot);
+  setText('lbl-wgl-zoom', t.playground.statDistZoom);
+  setText('pg-wgl-tip', t.playground.wglTip);
+
+  setText('pg-inspector-title', t.playground.inspectorTitle);
+  setText('clear-logs-btn', t.playground.clearLogs);
 }
 
 function setupDomArena(): void {
@@ -30,7 +94,6 @@ function setupDomArena(): void {
   let dbls = 0;
   let rights = 0;
   let movingHits = 0;
-  let movingEnabled = false;
   let movingStep = 0;
   let movingTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -69,9 +132,10 @@ function setupDomArena(): void {
   });
 
   toggleMovingBtn.addEventListener('click', () => {
-    movingEnabled = !movingEnabled;
-    toggleMovingBtn.textContent = movingEnabled ? '停止移动' : '开启移动';
-    if (movingEnabled) {
+    isMovingEnabled = !isMovingEnabled;
+    const t = getMessages(activeLanguage);
+    toggleMovingBtn.textContent = isMovingEnabled ? t.playground.movingStop : t.playground.movingStart;
+    if (isMovingEnabled) {
       movingTimer = setInterval(() => {
         movingStep = (movingStep + 1) % 3;
         const offsets = [0, 95, 190];
@@ -107,9 +171,9 @@ function setupCanvas2dArena(): void {
   let holdInterval: ReturnType<typeof setInterval> | null = null;
 
   const buttons = [
-    { id: 'atk', label: '⚔️ 攻击 Boss', x: 26, y: 34, w: 148, h: 52, color: '#0284c7' },
-    { id: 'gold', label: '💎 采集金币', x: 26, y: 106, w: 148, h: 52, color: '#7c3aed' },
-    { id: 'hold', label: '🛡️ 蓄力长按', x: 26, y: 178, w: 148, h: 52, color: '#059669' },
+    { id: 'atk', x: 26, y: 34, w: 148, h: 52, color: '#0284c7' },
+    { id: 'gold', x: 26, y: 106, w: 148, h: 52, color: '#7c3aed' },
+    { id: 'hold', x: 26, y: 178, w: 148, h: 52, color: '#059669' },
   ];
 
   const effects: Array<{ x: number; y: number; text: string; life: number }> = [];
@@ -145,7 +209,7 @@ function setupCanvas2dArena(): void {
         } else if (btn.id === 'hold') {
           hold += 1;
           holdEl.textContent = String(hold);
-          effects.push({ x: pt.x, y: pt.y, text: '🛡️ 蓄力!', life: 1 });
+          effects.push({ x: pt.x, y: pt.y, text: '🛡️ +1', life: 1 });
           if (holdInterval) clearInterval(holdInterval);
           holdInterval = setInterval(() => {
             hold += 1;
@@ -195,9 +259,15 @@ function setupCanvas2dArena(): void {
   );
 
   const draw = () => {
+    const t = getMessages(activeLanguage);
+    const labelMap: Record<string, string> = {
+      atk: t.playground.c2dBtnAtk,
+      gold: t.playground.c2dBtnGold,
+      hold: t.playground.c2dBtnHold,
+    };
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Subtle cyber grid
     ctx.strokeStyle = 'rgba(56, 189, 248, 0.1)';
     ctx.lineWidth = 1;
     for (let x = 0; x < canvas.width; x += 26) {
@@ -213,7 +283,6 @@ function setupCanvas2dArena(): void {
       ctx.stroke();
     }
 
-    // Draw Canvas-only buttons
     for (const btn of buttons) {
       ctx.fillStyle = btn.color;
       ctx.beginPath();
@@ -222,22 +291,20 @@ function setupCanvas2dArena(): void {
       ctx.strokeStyle = 'rgba(255,255,255,0.3)';
       ctx.stroke();
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 14px sans-serif';
+      ctx.font = 'bold 13px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2);
+      ctx.fillText(labelMap[btn.id], btn.x + btn.w / 2, btn.y + btn.h / 2);
     }
 
-    // Drag Arena Box
     ctx.strokeStyle = 'rgba(167, 139, 250, 0.35)';
     ctx.setLineDash([5, 5]);
     ctx.strokeRect(200, 24, 296, 272);
     ctx.setLineDash([]);
     ctx.fillStyle = '#94a3b8';
     ctx.font = '11px sans-serif';
-    ctx.fillText(`可拖拽能量球区域 · 缩放 ${zoom.toFixed(2)}x`, 348, 42);
+    ctx.fillText(`${t.playground.c2dOrbHint} ${zoom.toFixed(2)}x`, 348, 42);
 
-    // Orb
     const scaledR = orb.r * (0.65 + zoom * 0.35);
     const grad = ctx.createRadialGradient(orb.x - 4, orb.y - 4, 4, orb.x, orb.y, scaledR);
     grad.addColorStop(0, '#a5f3fc');
@@ -251,7 +318,6 @@ function setupCanvas2dArena(): void {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Floating hit effects
     for (let i = effects.length - 1; i >= 0; i--) {
       const fx = effects[i];
       ctx.fillStyle = `rgba(56, 189, 248, ${fx.life})`;
@@ -274,7 +340,7 @@ function setupWebGlArena(): void {
   const zoomEl = document.getElementById('wgl-zoom')!;
 
   if (!gl) {
-    hitsEl.textContent = 'WebGL 不可用';
+    hitsEl.textContent = 'WebGL N/A';
     return;
   }
 
@@ -290,7 +356,6 @@ function setupWebGlArena(): void {
       float cx = cos(uRotX), sx = sin(uRotX);
       float cy = cos(uRotY), sy = sin(uRotY);
       vec3 p = aPos * (uScale + uPulse * 0.14);
-      // Rotate Y then X
       vec3 py = vec3(p.x * cy - p.z * sy, p.y, p.x * sy + p.z * cy);
       vec3 px = vec3(py.x, py.y * cx - py.z * sx, py.y * sx + py.z * cx);
       float aspect = ${canvas.width}.0 / ${canvas.height}.0;
@@ -320,7 +385,6 @@ function setupWebGlArena(): void {
   gl.linkProgram(prog);
   gl.useProgram(prog);
 
-  // Octahedron 3D vertices (8 triangles * 3 vertices = 24 vertices)
   const top = [0, 0.72, 0];
   const bot = [0, -0.72, 0];
   const ring = [
@@ -442,14 +506,52 @@ function setupWebGlArena(): void {
   requestAnimationFrame(render);
 }
 
-setupEnvTip();
-setupDomArena();
-setupCanvas2dArena();
-setupWebGlArena();
-document.getElementById('clear-logs-btn')?.addEventListener('click', () => {
-  const logs = document.getElementById('event-logs');
-  if (logs) logs.innerHTML = '';
-});
-document.getElementById('toggle-hud-btn')?.addEventListener('click', () => {
-  window.dispatchEvent(new CustomEvent('autoclick:toggle-hud'));
-});
+async function initPlayground(): Promise<void> {
+  const initialState = await loadPersistedState();
+  activeLanguage = initialState.settings.language;
+  applyPlaygroundI18n();
+
+  const langSelect = document.getElementById('pg-lang-select') as HTMLSelectElement | null;
+  langSelect?.addEventListener('change', async () => {
+    activeLanguage = langSelect.value as LanguageSetting;
+    const latest = await loadPersistedState();
+    const updated: PersistedState = {
+      ...latest,
+      settings: { ...latest.settings, language: activeLanguage },
+    };
+    await savePersistedState(updated);
+    applyPlaygroundI18n();
+  });
+
+  window.addEventListener('autoclick:state-saved', (ev) => {
+    const incoming = (ev as CustomEvent<PersistedState | undefined>).detail;
+    if (incoming?.settings?.language && incoming.settings.language !== activeLanguage) {
+      activeLanguage = incoming.settings.language;
+      applyPlaygroundI18n();
+    }
+  });
+
+  if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'local' || !changes[STORAGE_KEY]?.newValue) return;
+      const incoming = changes[STORAGE_KEY].newValue as PersistedState;
+      if (incoming.settings?.language && incoming.settings.language !== activeLanguage) {
+        activeLanguage = incoming.settings.language;
+        applyPlaygroundI18n();
+      }
+    });
+  }
+
+  setupDomArena();
+  setupCanvas2dArena();
+  setupWebGlArena();
+  document.getElementById('clear-logs-btn')?.addEventListener('click', () => {
+    const logs = document.getElementById('event-logs');
+    if (logs) logs.innerHTML = '';
+  });
+  document.getElementById('toggle-hud-btn')?.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('autoclick:toggle-hud'));
+  });
+}
+
+void initPlayground();

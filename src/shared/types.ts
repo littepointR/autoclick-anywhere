@@ -3,6 +3,8 @@ export type MouseButtonType = 'left' | 'right' | 'middle';
 export type ClickKind = 'single' | 'double' | 'hold';
 export type LocatorMode = 'auto' | 'dom' | 'canvas-relative' | 'viewport';
 export type ScrollDirection = 'down' | 'up' | 'right' | 'left' | 'custom';
+export type LocaleCode = 'zh_CN' | 'zh_TW' | 'en' | 'ja' | 'ko';
+export type LanguageSetting = 'auto' | LocaleCode;
 
 export interface TargetLocator {
   mode: LocatorMode;
@@ -93,6 +95,7 @@ export interface PhaseTimingState {
 }
 
 export interface ExtensionSettings {
+  language: LanguageSetting;
   engine: EngineMode;
   showRipples: boolean;
   showPins: boolean;

@@ -235,6 +235,9 @@ export async function savePersistedState(state: PersistedState): Promise<void> {
   if (typeof localStorage !== 'undefined') {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      if (typeof window !== 'undefined' && typeof CustomEvent === 'function') {
+        window.dispatchEvent(new CustomEvent('autoclick:state-saved', { detail: state }));
+      }
     } catch {
       // Ignore quota errors
     }
