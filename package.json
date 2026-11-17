@@ -1,0 +1,47 @@
+{
+  "name": "autoclick-anywhere",
+  "version": "1.0.0",
+  "description": "AutoClick Anywhere - DOM & Canvas/WebGL Browser Extension with Single-Point, Multi-Point, Scroll, and Macro Record/Playback",
+  "license": "MIT",
+  "author": "littepointR",
+  "homepage": "https://github.com/littepointR/autoclick-anywhere#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/littepointR/autoclick-anywhere.git"
+  },
+  "bugs": {
+    "url": "https://github.com/littepointR/autoclick-anywhere/issues"
+  },
+  "keywords": [
+    "browser-extension",
+    "chrome-extension",
+    "edge-extension",
+    "manifest-v3",
+    "autoclicker",
+    "canvas",
+    "webgl",
+    "macro-recorder",
+    "cdp",
+    "typescript"
+  ],
+  "engines": {
+    "node": ">=23.6.0"
+  },
+  "type": "module",
+  "scripts": {
+    "generate-icons": "node scripts/generate-icons.mjs",
+    "build": "node scripts/generate-icons.mjs && node scripts/build.mjs",
+    "package": "npm run build && node scripts/package-release.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.ts",
+    "playground": "node scripts/serve-playground.mjs"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.312",
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^22.13.10",
+    "esbuild": "^0.28.2",
+    "jsdom": "^26.0.0",
+    "typescript": "^5.8.2"
+  }
+}

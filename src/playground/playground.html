@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoClick Anywhere · DOM / Canvas / WebGL 测试靶场</title>
+  <link rel="stylesheet" href="./playground.css" />
+</head>
+<body>
+  <div class="pg-wrap">
+    <header class="pg-header">
+      <div>
+        <h1>🎯 AutoClick Anywhere · 全场景交互测试靶场</h1>
+        <p class="pg-sub">
+          用于验证 <strong>DOM 选择器追踪</strong>、<strong>2D Canvas 无 DOM 游戏按键/拖拽/缩放</strong>、<strong>WebGL 3D 旋转/点击/滚轮</strong> 与 <strong>宏录制回放</strong>。
+        </p>
+      </div>
+      <div class="pg-env-pill" id="env-tip">正在检测环境…</div>
+    </header>
+
+    <main class="pg-grid">
+      <!-- Arena 1: DOM -->
+      <section class="arena">
+        <div class="arena-head">
+          <h2>1. 标准 DOM 交互测试区</h2>
+          <span class="tag tag-dom">DOM</span>
+        </div>
+        <div class="dom-controls">
+          <button id="dom-click-btn" class="pg-btn pg-btn-cyan">单击计数: <strong id="dom-click-count">0</strong></button>
+          <button id="dom-dbl-btn" class="pg-btn pg-btn-indigo">双击计数: <strong id="dom-dbl-count">0</strong></button>
+          <button id="dom-right-btn" class="pg-btn pg-btn-pink">右键点击: <strong id="dom-right-count">0</strong></button>
+        </div>
+
+        <div class="moving-stage">
+          <div class="moving-head">
+            <span>动态位移追踪测试（测试 DOM 选择器抗位移能力）</span>
+            <button id="toggle-moving-btn" class="pg-btn-xs">开启移动</button>
+          </div>
+          <div class="moving-track">
+            <button id="moving-target-btn" class="pg-btn pg-btn-emerald">移动靶心: <strong id="moving-count">0</strong></button>
+          </div>
+        </div>
+
+        <div class="scroll-stage">
+          <div class="moving-head">
+            <span>局部滚动容器测试</span>
+            <span id="dom-scroll-pos">scrollTop: 0px</span>
+          </div>
+          <div id="dom-scroll-box" class="scroll-box">
+            <div class="scroll-row">#1 列表项 · 测试局部容器自动滚动</div>
+            <div class="scroll-row">#2 列表项 · 支持滚轮事件与 fallback scrollBy</div>
+            <div class="scroll-row">#3 列表项 · 向下滚动以查看更多内容</div>
+            <div class="scroll-row">#4 列表项 · DOM 容器与 Canvas 缩放互不干扰</div>
+            <div class="scroll-row">#5 列表项 · 可以用「滚动」模式拾取此容器</div>
+            <div class="scroll-row">#6 列表项 · 也可以录制滚轮操作后回放</div>
+            <div class="scroll-row">#7 列表项 · 底部区域 A</div>
+            <div class="scroll-row">#8 列表项 · 底部区域 B</div>
+            <div class="scroll-row">#9 列表项 · 底部区域 C</div>
+            <div class="scroll-row">#10 列表项 · 到底了！</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Arena 2: Canvas 2D -->
+      <section class="arena">
+        <div class="arena-head">
+          <h2>2. 2D Canvas 无 DOM 游戏区</h2>
+          <span class="tag tag-canvas">Canvas 2D</span>
+        </div>
+        <div class="arena-stats">
+          <span>⚔️ 攻击: <strong id="c2d-atk">0</strong></span>
+          <span>💎 金币: <strong id="c2d-gold">0</strong></span>
+          <span>🛡️ 蓄力: <strong id="c2d-hold">0</strong></span>
+          <span>🔍 缩放: <strong id="c2d-zoom">1.00x</strong></span>
+        </div>
+        <canvas id="canvas2d" width="520" height="320" tabindex="0"></canvas>
+        <p class="arena-tip">内部按钮全部绘制在 Canvas 像素上（无 DOM）。支持点击按钮、拖拽青色能量球、鼠标滚轮缩放。</p>
+      </section>
+
+      <!-- Arena 3: WebGL -->
+      <section class="arena">
+        <div class="arena-head">
+          <h2>3. WebGL 3D 交互区</h2>
+          <span class="tag tag-webgl">WebGL 3D</span>
+        </div>
+        <div class="arena-stats">
+          <span>🎯 命中: <strong id="wgl-hits">0</strong></span>
+          <span>🔄 视角: <strong id="wgl-rot">0°, 0°</strong></span>
+          <span>🔭 距离缩放: <strong id="wgl-zoom">1.00x</strong></span>
+        </div>
+        <canvas id="webgl-canvas" width="520" height="320" tabindex="0"></canvas>
+        <p class="arena-tip">真实 WebGL 着色器渲染：点击触发脉冲命中，按住拖拽旋转 3D 模型，滚轮缩放视角。</p>
+      </section>
+    </main>
+
+    <section class="inspector">
+      <div class="inspector-head">
+        <h3>📡 实时输入事件监视台（最近 12 条 · 检验 isTrusted 与坐标穿透）</h3>
+        <button id="clear-logs-btn" class="pg-btn-xs">清空日志</button>
+      </div>
+      <div id="event-logs" class="event-logs"></div>
+    </section>
+  </div>
+
+  <script src="./playground.js"></script>
+  <script src="./content.js"></script>
+</body>
+</html>

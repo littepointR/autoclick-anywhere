@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoClick Anywhere</title>
+  <link rel="stylesheet" href="./popup.css" />
+</head>
+<body>
+  <div class="popup-root">
+    <header class="header">
+      <div class="title-wrap">
+        <span class="dot" id="status-dot"></span>
+        <div>
+          <h1>AutoClick Anywhere</h1>
+          <p class="subtitle">DOM + Canvas/WebGL 全能自动点击器</p>
+        </div>
+      </div>
+      <span class="pill" id="status-badge">检测中…</span>
+    </header>
+
+    <section class="card">
+      <button class="btn btn-primary btn-block" id="btn-toggle-hud">🎛️ 显示 / 隐藏页面悬浮面板 (Alt+H)</button>
+      <div class="grid-2">
+        <button class="btn btn-accent" id="btn-toggle-run">▶ 启停执行 (F8)</button>
+        <button class="btn btn-record" id="btn-toggle-record">🔴 宏录制 (F9)</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-label">输入派发引擎</div>
+      <div class="engine-options">
+        <label class="radio-card">
+          <input type="radio" name="engine" value="cdp" id="eng-cdp" />
+          <div>
+            <strong>⚡ CDP 原生可信引擎（推荐）</strong>
+            <small>通过 Chrome Debugger 派发硬件级输入（isTrusted=true），稳定穿透 Canvas / WebGL / Shadow DOM</small>
+          </div>
+        </label>
+        <label class="radio-card">
+          <input type="radio" name="engine" value="dom" id="eng-dom" />
+          <div>
+            <strong>🔇 DOM 静默合成引擎</strong>
+            <small>零调试横幅，支持 DOM 选择器追踪、Canvas 比例映射与本地滚动</small>
+          </div>
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-label">辅助选项</div>
+      <label class="toggle-row">
+        <span>显示点击 / 滚轮 / 拖拽波纹特效</span>
+        <input type="checkbox" id="opt-ripples" />
+      </label>
+      <label class="toggle-row">
+        <span>在页面显示多点序号标记 (Pins)</span>
+        <input type="checkbox" id="opt-pins" />
+      </label>
+      <label class="toggle-row">
+        <span>按 Esc 键紧急停止执行/录制</span>
+        <input type="checkbox" id="opt-esc" />
+      </label>
+      <label class="toggle-row">
+        <span>停止后自动断开 CDP 调试横幅</span>
+        <input type="checkbox" id="opt-detach" />
+      </label>
+    </section>
+
+    <footer class="footer">
+      <button class="btn btn-outline btn-block" id="btn-open-playground">🧪 打开 DOM + Canvas + WebGL 测试靶场</button>
+      <div class="hint" id="conn-hint">支持单点 · 多点序列 · 滚动 · 拖拽 · 宏录制回放</div>
+    </footer>
+  </div>
+  <script src="./popup.js"></script>
+</body>
+</html>
