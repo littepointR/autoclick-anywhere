@@ -266,3 +266,72 @@ test('MacroRecorder captures clicks, drags, coalesced wheels, keys while ignorin
 
   assert.deepEqual(replayed, ['CDP_CLICK', 'CDP_DRAG', 'CDP_WHEEL', 'CDP_KEY']);
 });
+
+test('ActionRunner applies live CDP <-> DOM engine switching mid-run without restarting', async () => {
+  const dom = new JSDOM(`<!doctype html><html><body><button id="live-btn">Go</button></body></html>`);
+  const doc = dom.window.document;
+  const btn = doc.getElementById('live-btn')!;
+  mockRect(btn, 40, 40, 100, 40);
+  (doc as unknown as { elementsFromPoint: () => Element[] }).elementsFromPoint = () => [btn];
+
+  const baseSettings: ExtensionSettings = { ...DEFAULT_SETTINGS, engine: 'cdp', showRipples: false };
+  let cdpClicks = 0;
+  let domClicks = 0;
+  let detachCount = 0;
+
+  const runner = new ActionRunner({
+    doc,
+    getViewportSize: () => ({ width: 800, height: 600 }),
+    sendToBackground: async (msg) => {
+      if (msg.type === 'PREFLIGHT_CDP') return { ok: true };
+      if (msg.type === 'DETACH_DEBUGGER') {
+        detachCount += 1;
+        return { ok: true };
+      }
+      if (msg.type === 'CDP_CLICK') {
+        cdpClicks += 1;
+        if (cdpClicks === 1) {
+          runner.updateSettings({ ...baseSettings, engine: 'dom' });
+        }
+        return { ok: true };
+      }
+      return { ok: true };
+    },
+  });
+
+  btn.addEventListener('click', () => {
+    domClicks += 1;
+    if (domClicks === 2) {
+      runner.updateSettings({ ...baseSettings, engine: 'cdp' }, true);
+    }
+  });
+
+  const config: SingleClickConfig = {
+    followCursor: false,
+    target: {
+      mode: 'dom',
+      clientX: 90,
+      clientY: 60,
+      pageX: 90,
+      pageY: 60,
+      selector: '#live-btn',
+      relX: 0.5,
+      relY: 0.5,
+    },
+    button: 'left',
+    clickKind: 'single',
+    holdMs: 0,
+    intervalMs: 15,
+    jitterMs: 0,
+    jitterPx: 0,
+    maxCount: 4,
+  };
+
+  await runner.runSingle(config, baseSettings);
+
+  assert.equal(cdpClicks, 2);
+  assert.equal(domClicks, 2);
+  assert.ok(detachCount >= 1);
+  assert.equal(runner.getStatusSnapshot().executedCount, 4);
+  assert.equal(runner.getIsRunning(), false);
+});

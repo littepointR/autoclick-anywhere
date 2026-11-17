@@ -15,6 +15,7 @@ import type {
 
 export interface HudActions {
   onStateChange: (next: PersistedState) => void;
+  onSwitchEngine: (engine: EngineMode) => void;
   onToggleRun: () => void;
   onToggleRecord: () => void;
   onPickSingleTarget: () => void;
@@ -111,6 +112,7 @@ export class HudPanel {
     const modeChanged =
       this.status.isRunning !== status.isRunning ||
       this.status.isRecording !== status.isRecording ||
+      this.status.activeMode !== status.activeMode ||
       this.status.fallbackReason !== status.fallbackReason ||
       this.status.effectiveEngine !== status.effectiveEngine;
     this.status = status;
@@ -275,8 +277,15 @@ export class HudPanel {
         ? `录制中 · <strong>${this.status.recordedStepsCount}</strong> 步`
         : '空闲就绪';
 
-    const engine = this.state.settings.engine;
-    const mode = this.state.activeMode;
+    const displayedEngine = this.status.isRunning ? this.status.effectiveEngine : this.state.settings.engine;
+    const tabsLocked = this.status.isRunning || this.status.isRecording;
+    const mode = tabsLocked ? this.status.activeMode : this.state.activeMode;
+
+    const tabBtn = (tab: ActiveTabMode, label: string) => {
+      const isActive = mode === tab;
+      const lockedOther = tabsLocked && !isActive;
+      return `<button class="ac-tab ${isActive ? 'is-active' : ''} ${lockedOther ? 'is-locked' : ''}" data-tab="${tab}" ${lockedOther ? 'disabled title="运行或录制中禁止切换标签页，请先停止"' : ''}>${label}</button>`;
+    };
 
     const fallbackBanner = this.status.fallbackReason
       ? `<div class="ac-fallback-note">⚠️ ${escapeHtml(this.status.fallbackReason)}</div>`
@@ -296,8 +305,8 @@ export class HudPanel {
 
       <div class="ac-engine-bar">
         <div class="ac-segmented" title="CDP 原生事件可穿透 Canvas/WebGL；DOM 模式无调试横幅">
-          <button class="ac-seg-btn ${engine === 'cdp' ? 'is-active' : ''}" data-engine="cdp">⚡ CDP 原生</button>
-          <button class="ac-seg-btn ${engine === 'dom' ? 'is-active' : ''}" data-engine="dom">🔇 DOM 静默</button>
+          <button class="ac-seg-btn ${displayedEngine === 'cdp' ? 'is-active' : ''}" data-engine="cdp">⚡ CDP 原生</button>
+          <button class="ac-seg-btn ${displayedEngine === 'dom' ? 'is-active' : ''}" data-engine="dom">🔇 DOM 静默</button>
         </div>
         <div class="ac-status-pill">${statusText}</div>
       </div>
@@ -305,10 +314,10 @@ export class HudPanel {
       ${fallbackBanner}
 
       <div class="ac-tabs">
-        <button class="ac-tab ${mode === 'single' ? 'is-active' : ''}" data-tab="single">单点</button>
-        <button class="ac-tab ${mode === 'multi' ? 'is-active' : ''}" data-tab="multi">多点</button>
-        <button class="ac-tab ${mode === 'scroll' ? 'is-active' : ''}" data-tab="scroll">滚动</button>
-        <button class="ac-tab ${mode === 'macro' ? 'is-active' : ''}" data-tab="macro">宏录制</button>
+        ${tabBtn('single', '单点')}
+        ${tabBtn('multi', '多点')}
+        ${tabBtn('scroll', '滚动')}
+        ${tabBtn('macro', '宏录制')}
       </div>
 
       <div class="ac-body" id="ac-tab-body"></div>
@@ -332,14 +341,13 @@ export class HudPanel {
     this.panelEl.querySelectorAll('[data-engine]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const nextEngine = btn.getAttribute('data-engine') as EngineMode;
-        this.commitState({
-          settings: { ...this.state.settings, engine: nextEngine },
-        });
+        this.actions.onSwitchEngine(nextEngine);
       });
     });
 
     this.panelEl.querySelectorAll('[data-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
+        if (this.status.isRunning || this.status.isRecording) return;
         const nextMode = btn.getAttribute('data-tab') as ActiveTabMode;
         this.commitState({ activeMode: nextMode });
       });
@@ -362,8 +370,9 @@ export class HudPanel {
         ? `${t.label ?? '目标'} (${t.clientX}, ${t.clientY})`
         : '尚未拾取目标（默认点击视口中心）';
 
-    const runBtnCls = this.status.isRunning ? 'ac-btn-danger' : 'ac-btn-primary';
-    const runBtnText = this.status.isRunning ? '⏹ 停止执行 (F8 / Esc)' : '▶ 开始单点执行 (F8)';
+    const isThisModeRunning = this.status.isRunning && this.status.activeMode === 'single';
+    const runBtnCls = isThisModeRunning ? 'ac-btn-danger' : 'ac-btn-primary';
+    const runBtnText = isThisModeRunning ? '⏹ 停止执行 (F8 / Esc)' : '▶ 开始单点执行 (F8)';
 
     body.innerHTML = `
       <div class="ac-card">
@@ -373,7 +382,7 @@ export class HudPanel {
         </div>
         <div style="font-size:11px; color:#cbd5e1; word-break:break-all;">${escapeHtml(targetDesc)}</div>
         <div class="ac-row">
-          <button class="ac-btn ac-btn-sm ac-btn-primary" id="ac-pick-single" ${s.followCursor ? 'disabled' : ''}>🎯 拾取目标</button>
+          <button class="ac-btn ac-btn-sm ac-btn-primary" id="ac-pick-single" ${s.followCursor || isThisModeRunning ? 'disabled' : ''}>🎯 拾取目标</button>
           <select class="ac-select" id="ac-single-loc-mode" ${!t || s.followCursor ? 'disabled' : ''}>
             <option value="auto" ${t?.mode === 'auto' ? 'selected' : ''}>自动识别定位</option>
             <option value="canvas-relative" ${t?.mode === 'canvas-relative' ? 'selected' : ''}>Canvas 相对比例</option>
@@ -483,8 +492,9 @@ export class HudPanel {
 
   private renderMultiTab(body: HTMLElement): void {
     const m = this.state.multi;
-    const runBtnCls = this.status.isRunning ? 'ac-btn-danger' : 'ac-btn-primary';
-    const runBtnText = this.status.isRunning ? '⏹ 停止序列 (F8 / Esc)' : '▶ 开始多点序列 (F8)';
+    const isThisModeRunning = this.status.isRunning && this.status.activeMode === 'multi';
+    const runBtnCls = isThisModeRunning ? 'ac-btn-danger' : 'ac-btn-primary';
+    const runBtnText = isThisModeRunning ? '⏹ 停止序列 (F8 / Esc)' : '▶ 开始多点序列 (F8)';
 
     const listHtml =
       m.items.length === 0
@@ -548,13 +558,13 @@ export class HudPanel {
       <div class="ac-card">
         <div class="ac-card-title">
           <span>添加动作节点</span>
-          <button class="ac-icon-btn" id="ac-multi-clear">清空</button>
+          <button class="ac-icon-btn" id="ac-multi-clear" ${isThisModeRunning ? 'disabled' : ''}>清空</button>
         </div>
         <div class="ac-grid-2">
-          <button class="ac-btn ac-btn-sm ac-btn-primary" id="ac-add-click">+ 拾取点击</button>
-          <button class="ac-btn ac-btn-sm" id="ac-add-scroll">+ 拾取滚动</button>
-          <button class="ac-btn ac-btn-sm" id="ac-add-drag">+ 拾取拖拽</button>
-          <button class="ac-btn ac-btn-sm" id="ac-add-wait">+ 纯等待步骤</button>
+          <button class="ac-btn ac-btn-sm ac-btn-primary" id="ac-add-click" ${isThisModeRunning ? 'disabled' : ''}>+ 拾取点击</button>
+          <button class="ac-btn ac-btn-sm" id="ac-add-scroll" ${isThisModeRunning ? 'disabled' : ''}>+ 拾取滚动</button>
+          <button class="ac-btn ac-btn-sm" id="ac-add-drag" ${isThisModeRunning ? 'disabled' : ''}>+ 拾取拖拽</button>
+          <button class="ac-btn ac-btn-sm" id="ac-add-wait" ${isThisModeRunning ? 'disabled' : ''}>+ 纯等待步骤</button>
         </div>
       </div>
 
@@ -679,8 +689,9 @@ export class HudPanel {
     const sc = this.state.scroll;
     const t = sc.target;
     const isCanvas = t?.tagName === 'CANVAS';
-    const runBtnCls = this.status.isRunning ? 'ac-btn-danger' : 'ac-btn-primary';
-    const runBtnText = this.status.isRunning ? '⏹ 停止滚动 (F8 / Esc)' : '▶ 开始自动滚动 (F8)';
+    const isThisModeRunning = this.status.isRunning && this.status.activeMode === 'scroll';
+    const runBtnCls = isThisModeRunning ? 'ac-btn-danger' : 'ac-btn-primary';
+    const runBtnText = isThisModeRunning ? '⏹ 停止滚动 (F8 / Esc)' : '▶ 开始自动滚动 (F8)';
 
     body.innerHTML = `
       <div class="ac-card">
@@ -693,7 +704,7 @@ export class HudPanel {
           指定局部容器 / Canvas 坐标（不勾选则作用于当前页面）
         </label>
         <div class="ac-row">
-          <button class="ac-btn ac-btn-sm ac-btn-primary" id="ac-pick-scroll" ${!sc.useTarget ? 'disabled' : ''}>🎯 拾取滚动目标</button>
+          <button class="ac-btn ac-btn-sm ac-btn-primary" id="ac-pick-scroll" ${!sc.useTarget || isThisModeRunning ? 'disabled' : ''}>🎯 拾取滚动目标</button>
           <span style="font-size:11px; color:#cbd5e1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
             ${sc.useTarget ? (t ? `${escapeHtml(t.label ?? '')} (${t.clientX},${t.clientY})` : '未拾取') : '视口中心 / 鼠标位置'}
           </span>
@@ -771,14 +782,15 @@ export class HudPanel {
   private renderMacroTab(body: HTMLElement): void {
     const mc = this.state.macro;
     const activeMacro = mc.macros.find((m) => m.id === mc.activeMacroId) ?? mc.macros[0] ?? null;
+    const isThisModeRunning = this.status.isRunning && this.status.activeMode === 'macro';
 
     const recBtnCls = this.status.isRecording ? 'ac-btn-danger' : 'ac-btn-record';
     const recBtnText = this.status.isRecording
       ? `⏹ 停止录制 (已录 ${this.status.recordedStepsCount} 步)`
       : '🔴 开始录制新宏 (F9)';
 
-    const runBtnCls = this.status.isRunning ? 'ac-btn-danger' : 'ac-btn-primary';
-    const runBtnText = this.status.isRunning ? '⏹ 停止回放 (F8 / Esc)' : '▶ 回放当前宏 (F8)';
+    const runBtnCls = isThisModeRunning ? 'ac-btn-danger' : 'ac-btn-primary';
+    const runBtnText = isThisModeRunning ? '⏹ 停止回放 (F8 / Esc)' : '▶ 回放当前宏 (F8)';
 
     const macroOptions = mc.macros.length
       ? mc.macros
@@ -814,7 +826,7 @@ export class HudPanel {
 
     body.innerHTML = `
       <div class="ac-card">
-        <button class="ac-btn ${recBtnCls}" id="ac-macro-record-btn">${recBtnText}</button>
+        <button class="ac-btn ${recBtnCls}" id="ac-macro-record-btn" ${isThisModeRunning ? 'disabled' : ''}>${recBtnText}</button>
         <div class="ac-row" style="justify-content:space-between;">
           <label class="ac-check">
             <input type="checkbox" id="ac-rec-wheel" ${mc.recordWheel ? 'checked' : ''} />

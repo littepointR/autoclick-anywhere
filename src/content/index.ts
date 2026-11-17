@@ -79,12 +79,19 @@ async function bootstrapContent(): Promise<void> {
   let overlay: OverlayManager;
 
   const getCompositeStatus = (): RuntimeStatus => {
-    const base = runner.getStatusSnapshot({
-      activeMode: state.activeMode,
+    const rawSnap = runner.getStatusSnapshot();
+    const effectiveMode = rawSnap.isRunning
+      ? rawSnap.activeMode
+      : recorder.isRecording()
+        ? 'macro'
+        : state.activeMode;
+    const base: RuntimeStatus = {
+      ...rawSnap,
+      activeMode: effectiveMode,
       isRecording: recorder.isRecording(),
       isPicking: picker.isPicking(),
       recordedStepsCount: recorder.getSteps().length,
-    });
+    };
     if (!base.isRunning && !base.fallbackReason) {
       base.effectiveEngine = state.settings.engine;
     }
@@ -105,8 +112,14 @@ async function bootstrapContent(): Promise<void> {
   };
 
   const persistState = (next: PersistedState) => {
-    state = next;
+    const lockedMode = runner.getIsRunning()
+      ? runner.getStatusSnapshot().activeMode
+      : recorder.isRecording()
+        ? 'macro'
+        : next.activeMode;
+    state = { ...next, activeMode: lockedMode };
     void savePersistedState(state);
+    runner.updateSettings(state.settings);
     recorder.updateOptions({
       recordWheel: state.macro.recordWheel,
       recordKeyboard: state.macro.recordKeyboard,
@@ -248,6 +261,12 @@ async function bootstrapContent(): Promise<void> {
 
   hud = new HudPanel(shadow, state, getCompositeStatus(), {
     onStateChange: (next) => persistState(next),
+    onSwitchEngine: (nextEngine) => {
+      state = { ...state, settings: { ...state.settings, engine: nextEngine } };
+      void savePersistedState(state);
+      runner.updateSettings(state.settings, true);
+      hud.update(state, getCompositeStatus());
+    },
     onToggleRun: toggleRun,
     onToggleRecord: toggleRecord,
     onPickSingleTarget: async () => {
@@ -347,6 +366,7 @@ async function bootstrapContent(): Promise<void> {
           hudVisible: incoming.hudVisible,
           settings: incoming.settings,
         };
+        runner.updateSettings(state.settings, settingsChanged);
         hud.update(state, getCompositeStatus());
         syncPins();
       }
@@ -382,7 +402,11 @@ async function bootstrapContent(): Promise<void> {
         return;
       }
       if (msg.type === 'SYNC_SETTINGS') {
-        persistState({ ...state, settings: msg.settings });
+        state = { ...state, settings: msg.settings };
+        void savePersistedState(state);
+        runner.updateSettings(state.settings, true);
+        hud.update(state, getCompositeStatus());
+        syncPins();
         sendResponse({ ok: true });
       }
     });

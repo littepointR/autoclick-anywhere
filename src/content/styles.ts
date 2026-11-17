@@ -392,6 +392,12 @@ export const HUD_STYLES = `
   color: #e0f2fe;
 }
 
+.ac-tab:disabled,
+.ac-tab.is-locked {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
 .ac-body {
   padding: 10px 12px 12px;
   overflow-y: auto;
@@ -494,6 +500,12 @@ export const HUD_STYLES = `
 
 .ac-btn:hover {
   background: rgba(71, 85, 105, 0.9);
+}
+
+.ac-btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  filter: none;
 }
 
 .ac-btn-primary {

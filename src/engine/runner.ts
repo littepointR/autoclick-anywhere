@@ -1,3 +1,4 @@
+import { DEFAULT_SETTINGS } from '../shared/constants.ts';
 import { resolveTargetLocator } from '../shared/selector.ts';
 import { abortableSleep, applyPointJitter, applyTimeJitter } from '../shared/timing.ts';
 import type {
@@ -51,6 +52,7 @@ export class ActionRunner {
   private currentLoop = 0;
   private currentStepIndex = -1;
   private autoDetachDebugger = true;
+  private liveSettings: ExtensionSettings = { ...DEFAULT_SETTINGS };
 
   constructor(hooks: ActionRunnerHooks = {}) {
     this.hooks = hooks;
@@ -88,6 +90,7 @@ export class ActionRunner {
     const token = this.runToken;
     this.abortController = new AbortController();
     this.activeMode = mode;
+    this.liveSettings = { ...settings };
     this.activeEngine = settings.engine;
     this.fallbackReason = undefined;
     this.autoDetachDebugger = settings.autoDetachDebugger;
@@ -97,6 +100,46 @@ export class ActionRunner {
     this.currentStepIndex = -1;
     this.emitStatus();
     return { token, signal: this.abortController.signal };
+  }
+
+  updateSettings(nextSettings: ExtensionSettings, forceRetryCdp = false): void {
+    const prevEngine = this.activeEngine;
+    this.liveSettings = { ...nextSettings };
+    this.autoDetachDebugger = nextSettings.autoDetachDebugger;
+
+    if (!this.isRunning) {
+      this.activeEngine = nextSettings.engine;
+      this.fallbackReason = undefined;
+      return;
+    }
+
+    if (nextSettings.engine === 'dom') {
+      this.activeEngine = 'dom';
+      this.fallbackReason = undefined;
+      if (prevEngine === 'cdp' && this.autoDetachDebugger) {
+        void this.sendBg({ type: 'DETACH_DEBUGGER' }).catch(() => undefined);
+      }
+      this.emitStatus();
+      return;
+    }
+
+    if (prevEngine !== 'cdp' || forceRetryCdp) {
+      this.activeEngine = 'cdp';
+      this.fallbackReason = undefined;
+      this.emitStatus();
+
+      const expectedToken = this.runToken;
+      void this.sendBg({ type: 'PREFLIGHT_CDP' })
+        .then((res) => {
+          if (!this.isRunning || this.runToken !== expectedToken || this.liveSettings.engine !== 'cdp') return;
+          if (!res.ok && res.fallbackToDom) {
+            this.activeEngine = 'dom';
+            this.fallbackReason = res.reason ?? 'CDP 不可用，已切换为 DOM 引擎';
+            this.emitStatus();
+          }
+        })
+        .catch(() => undefined);
+    }
   }
 
   private finishRun(token: number): void {
@@ -402,7 +445,7 @@ export class ActionRunner {
           button: config.button,
           clickKind: config.clickKind,
           holdMs: config.holdMs,
-          showRipples: settings.showRipples,
+          showRipples: this.liveSettings.showRipples,
         });
 
         this.executedCount += 1;
@@ -475,7 +518,7 @@ export class ActionRunner {
                 button: item.button,
                 clickKind: item.clickKind,
                 holdMs: item.holdMs,
-                showRipples: settings.showRipples,
+                showRipples: this.liveSettings.showRipples,
               });
             } else if (item.type === 'scroll') {
               await this.runWheelAction(token, signal, {
@@ -483,7 +526,7 @@ export class ActionRunner {
                 y: pt.y,
                 deltaX: item.deltaX,
                 deltaY: item.deltaY,
-                showRipples: settings.showRipples,
+                showRipples: this.liveSettings.showRipples,
               });
             } else if (item.type === 'drag') {
               const endLocator = item.endTarget ?? item.target;
@@ -505,7 +548,7 @@ export class ActionRunner {
                 endY: endPt.y,
                 durationMs: item.dragDurationMs,
                 button: item.button,
-                showRipples: settings.showRipples,
+                showRipples: this.liveSettings.showRipples,
               });
             }
 
@@ -580,7 +623,7 @@ export class ActionRunner {
           y,
           deltaX: dx,
           deltaY: dy,
-          showRipples: settings.showRipples,
+          showRipples: this.liveSettings.showRipples,
         });
 
         this.executedCount += 1;
@@ -647,7 +690,7 @@ export class ActionRunner {
               button: step.button ?? 'left',
               clickKind: step.clickKind ?? 'single',
               holdMs: Math.round((step.holdMs ?? 20) / speed),
-              showRipples: settings.showRipples,
+              showRipples: this.liveSettings.showRipples,
             });
           } else if (step.type === 'drag' && step.target && step.endTarget) {
             const start = doc
@@ -663,7 +706,7 @@ export class ActionRunner {
               endY: end.y,
               durationMs: Math.max(40, Math.round((step.durationMs ?? 250) / speed)),
               button: step.button ?? 'left',
-              showRipples: settings.showRipples,
+              showRipples: this.liveSettings.showRipples,
             });
           } else if (step.type === 'wheel' && step.target) {
             const resolved = doc
@@ -674,7 +717,7 @@ export class ActionRunner {
               y: resolved.y,
               deltaX: step.deltaX ?? 0,
               deltaY: step.deltaY ?? 0,
-              showRipples: settings.showRipples,
+              showRipples: this.liveSettings.showRipples,
             });
           } else if (step.type === 'key' && step.key) {
             await this.runKeyAction(token, signal, {
